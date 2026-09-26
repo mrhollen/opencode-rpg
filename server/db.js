@@ -418,6 +418,30 @@ function getProjectWorld(projectId) {
         .prepare('SELECT * FROM session WHERE parent_id = ? ORDER BY time_updated DESC')
         .all(m.id);
 
+/**
+ * Extracts the latest real tool invocation or activity from session parts.
+ */
+function getLatestSessionActivity(sessionId) {
+  if (!db || isFallbackMode) return null;
+  try {
+    const parts = db
+      .prepare('SELECT data FROM part WHERE session_id = ? ORDER BY time_created DESC LIMIT 8')
+      .all(sessionId);
+    for (const p of parts) {
+      try {
+        const d = JSON.parse(p.data);
+        if (d.type === 'tool' && d.tool) {
+          const inp = d.state?.input || {};
+          const desc = inp.description || inp.command || inp.filePath || inp.path || inp.query || '';
+          const shortDesc = desc.length > 45 ? desc.substring(0, 42) + '...' : desc;
+          return shortDesc ? `${d.tool}: ${shortDesc}` : `${d.tool}`;
+        }
+      } catch {}
+    }
+  } catch {}
+  return null;
+}
+
       const subagents = childRows.map((sub) => {
         const subActive = sub.time_updated >= threshold15m && !sub.time_archived;
         const subModel = parseModel(sub.model);
@@ -432,7 +456,8 @@ function getProjectWorld(projectId) {
           )
           .get(sub.id);
 
-        const recentTask = recentTodo?.content || sub.title;
+        const realActivity = getLatestSessionActivity(sub.id);
+        const recentTask = realActivity || recentTodo?.content || sub.title;
 
         return {
           id: sub.id,
@@ -448,6 +473,7 @@ function getProjectWorld(projectId) {
           status: subActive ? 'active' : 'idle',
           recent_task: recentTask,
           recentTask: recentTask,
+          latestActivity: realActivity,
           station: assignStation(sub.agent, 'subagent', sub.title),
           tokens_input: Number(sub.tokens_input || 0),
           tokens_output: Number(sub.tokens_output || 0),
@@ -462,6 +488,8 @@ function getProjectWorld(projectId) {
       const activeSubCount = subagents.filter((s) => s.is_active).length;
       const totalActiveCount = activeSubCount + (is_active ? 1 : 0);
       const activeTodo = todos.find((t) => t.status === 'in_progress');
+      const masterActivity = getLatestSessionActivity(m.id);
+      const currentTask = masterActivity || activeTodo?.content || m.title;
 
       return {
         id: m.id,
@@ -482,7 +510,8 @@ function getProjectWorld(projectId) {
         is_active,
         status: is_active ? 'active' : m.time_archived ? 'resting' : 'idle',
         station: assignStation(m.agent, 'master', m.title),
-        currentTask: activeTodo?.content || m.title,
+        currentTask,
+        latestActivity: masterActivity,
         subagents,
         todos,
         activeAgents: totalActiveCount,

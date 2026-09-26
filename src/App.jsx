@@ -255,21 +255,33 @@ export default function App() {
   };
 
   // Switch Realm / Project
-  const handleSelectProject = (project) => {
+  const handleSelectProject = useCallback((project) => {
     setCurrentProject(project);
     fetchSessions(project.id);
-  };
+  }, [fetchSessions]);
 
   // Inspect Hut / Session
-  const handleSelectHut = (sessionOrHut) => {
+  const handleSelectHut = useCallback((sessionOrHut) => {
     const sess = sessionOrHut?.session || sessionOrHut;
     if (sess) {
       setSelectedSession(sess);
     }
-  };
+  }, []);
+
+  // Handle Agent Selection
+  const handleSelectAgent = useCallback((agent, hutSession) => {
+    if (hutSession) {
+      setSelectedSession(hutSession);
+    }
+  }, []);
+
+  // Handle Open Stargate
+  const handleOpenStargate = useCallback(() => {
+    setIsStargateOpen(true);
+  }, []);
 
   // Handle Station Click
-  const handleSelectStation = (station, hutSession) => {
+  const handleSelectStation = useCallback((station, hutSession) => {
     if (!station) return;
     const sType = typeof station === 'string' ? station : station.type || '';
     if (sType === 'forge') {
@@ -293,7 +305,7 @@ export default function App() {
     } else if (hutSession) {
       setSelectedSession(hutSession);
     }
-  };
+  }, [sessions]);
 
   // Cycle Biomes
   const handleCycleBiome = () => {
@@ -381,13 +393,9 @@ export default function App() {
           sessions={visibleSessions}
           selectedSessionId={selectedSession?.id}
           onSelectHut={handleSelectHut}
-          onSelectAgent={(agent, hutSession) => {
-            if (hutSession) {
-              setSelectedSession(hutSession);
-            }
-          }}
+          onSelectAgent={handleSelectAgent}
           onSelectStation={handleSelectStation}
-          onOpenStargate={() => setIsStargateOpen(true)}
+          onOpenStargate={handleOpenStargate}
           timePreset={isNightMode ? 'night' : 'day'}
           biome={currentBiome}
           showMinimap={true}

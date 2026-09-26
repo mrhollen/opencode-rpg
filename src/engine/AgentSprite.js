@@ -358,62 +358,62 @@ export class AgentSprite {
     const tagText = `${roleEmoji} ${this.name}`;
 
     ctx.font = '7px "Press Start 2P", monospace';
-    const tagW = ctx.measureText(tagText).width + 12;
+    const tagW = ctx.measureText(tagText).width + 14;
 
     // Pill box
-    ctx.fillStyle = '#1c1917';
-    ctx.fillRect(this.x - tagW / 2, tagY - 6, tagW, 12);
+    ctx.fillStyle = '#0c0a09';
+    ctx.fillRect(this.x - tagW / 2, tagY - 7, tagW, 14);
     ctx.strokeStyle = isWorking ? '#10b981' : (isThinking ? '#f59e0b' : '#57534e');
     ctx.lineWidth = 1;
-    ctx.strokeRect(this.x - tagW / 2, tagY - 6, tagW, 12);
+    ctx.strokeRect(this.x - tagW / 2, tagY - 7, tagW, 14);
 
     // Status dot
-    const dotX = this.x - tagW / 2 + 5;
+    const dotX = this.x - tagW / 2 + 6;
     ctx.fillStyle = isWorking ? '#10b981' : (isThinking ? '#f59e0b' : '#78716c');
-    ctx.fillRect(dotX - 1, tagY - 1, 3, 3);
+    ctx.fillRect(dotX - 1.5, tagY - 1.5, 3, 3);
 
     // Text
     ctx.fillStyle = isWorking ? '#a7f3d0' : '#e2e8f0';
-    ctx.fillText(tagText, this.x + 3, tagY);
+    ctx.fillText(tagText, this.x + 4, tagY);
 
     // 2. Speech Bubble if working or has active reasoning/task
-    const speechContent = this.currentTask || this.reasoning;
-    if ((isWorking || isThinking || isSelected) && speechContent) {
-      this.drawSpeechBubble(ctx, speechContent, tagY - 14);
+    const speechContent = this.latestActivity || this.currentTask || this.reasoning;
+    if (speechContent && (isWorking || isThinking || isSelected || this.speechTimer < 6)) {
+      this.drawSpeechBubble(ctx, speechContent, tagY - 14, isWorking);
     }
 
     ctx.restore();
   }
 
-  drawSpeechBubble(ctx, text, bottomY) {
+  drawSpeechBubble(ctx, text, bottomY, isWorking = false) {
     ctx.save();
-    ctx.font = '7px "Press Start 2P", monospace';
+    ctx.font = '8px monospace';
 
     // Truncate text cleanly if too long
-    const maxChars = 28;
+    const maxChars = 44;
     const displayText = text.length > maxChars ? text.substring(0, maxChars - 3) + '...' : text;
 
-    const textW = ctx.measureText(displayText).width + 14;
-    const boxH = 16;
+    const textW = ctx.measureText(displayText).width + 16;
+    const boxH = 18;
     const boxX = this.x - textW / 2;
     const boxY = bottomY - boxH - 4;
 
-    // Bubble white/cream background
-    ctx.fillStyle = '#fffbeb';
+    // Bubble dark high-contrast background with status border
+    ctx.fillStyle = '#18181b';
     ctx.fillRect(boxX, boxY, textW, boxH);
-    ctx.strokeStyle = '#451a03';
+    ctx.strokeStyle = isWorking ? '#059669' : '#3f3f46';
     ctx.lineWidth = 1.5;
     ctx.strokeRect(boxX, boxY, textW, boxH);
 
     // Pointer tail pointing down towards agent
-    ctx.fillStyle = '#fffbeb';
+    ctx.fillStyle = '#18181b';
     ctx.beginPath();
     ctx.moveTo(this.x - 4, boxY + boxH);
     ctx.lineTo(this.x + 4, boxY + boxH);
     ctx.lineTo(this.x, boxY + boxH + 4);
     ctx.closePath();
     ctx.fill();
-    ctx.strokeStyle = '#451a03';
+    ctx.strokeStyle = isWorking ? '#059669' : '#3f3f46';
     ctx.beginPath();
     ctx.moveTo(this.x - 4, boxY + boxH);
     ctx.lineTo(this.x, boxY + boxH + 4);
@@ -421,7 +421,7 @@ export class AgentSprite {
     ctx.stroke();
 
     // Bubble text
-    ctx.fillStyle = '#1c1917';
+    ctx.fillStyle = isWorking ? '#6ee7b7' : '#e4e4e7';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(displayText, this.x, boxY + boxH / 2);

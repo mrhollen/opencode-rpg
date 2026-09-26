@@ -168,9 +168,11 @@ export default function CharacterSheet({ session }) {
               <span>Station:</span>
               <span className="text-amber-300 font-semibold">{agentClass.station}</span>
             </div>
-            <div className="mt-2 text-[11px] text-stone-400 bg-stone-950/60 p-2 rounded border border-stone-800/80 truncate">
-              <span className="text-stone-500 font-pixel text-[9px] block mb-0.5">CURRENT TASK:</span>
-              <span className="text-stone-300">{agent.currentTask}</span>
+            <div className="mt-2 text-[11px] text-stone-400 bg-stone-950/60 p-2 rounded border border-stone-800/80">
+              <span className="text-stone-500 font-pixel text-[9px] block mb-0.5">CURRENT ACTIVITY:</span>
+              <span className="text-stone-300 font-mono text-[10px] break-all block">
+                {agent.latestActivity || agent.currentTask || 'Idle (awaiting instructions)'}
+              </span>
             </div>
           </div>
         </div>
@@ -181,21 +183,21 @@ export default function CharacterSheet({ session }) {
           <div className="bg-stone-900/90 border border-amber-900/60 p-3 rounded">
             <div className="flex items-center justify-between mb-2">
               <span className="flex items-center gap-2 text-xs font-pixel text-amber-400">
-                <Cpu className="w-4 h-4" /> Arcane Model Catalyst
+                <Cpu className="w-4 h-4" /> AI Model & Engine
               </span>
-              <span className="text-xs font-pixel px-2 py-0.5 rounded bg-amber-950 border border-amber-700/60 text-amber-200">
+              <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded bg-amber-950 border border-amber-700/60 text-amber-200">
                 {agent.model}
               </span>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-stone-800 text-center">
               <div className="bg-stone-950/70 p-2 rounded border border-stone-800">
-                <div className="text-[10px] font-pixel text-stone-400">GOLD COST</div>
+                <div className="text-[10px] font-pixel text-stone-400">SESSION COST</div>
                 <div className="text-xs font-pixel text-amber-300 mt-1">
                   {formatGoldCost(agent.cost)}
                 </div>
               </div>
               <div className="bg-stone-950/70 p-2 rounded border border-stone-800">
-                <div className="text-[10px] font-pixel text-stone-400">TOTAL MANA</div>
+                <div className="text-[10px] font-pixel text-stone-400">TOTAL TOKENS</div>
                 <div className="text-xs font-pixel text-sky-300 mt-1">
                   {formatMana(totalTokens)}
                 </div>
@@ -207,9 +209,9 @@ export default function CharacterSheet({ session }) {
                 </div>
               </div>
               <div className="bg-stone-950/70 p-2 rounded border border-stone-800">
-                <div className="text-[10px] font-pixel text-stone-400">AFFINITY</div>
-                <div className="text-xs font-pixel text-purple-300 mt-1">
-                  {agent.tokensReasoning > 0 ? 'Arcane Deep' : 'Swift Craft'}
+                <div className="text-[10px] font-pixel text-stone-400">ROLE</div>
+                <div className="text-xs font-mono font-semibold text-purple-300 mt-1 uppercase truncate px-1">
+                  {agent.role || (agent.isMaster ? 'Master Lead' : 'Subagent')}
                 </div>
               </div>
             </div>

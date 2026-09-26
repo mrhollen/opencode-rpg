@@ -42,6 +42,20 @@ export function RpgCanvas({
 
   const [currentBiome, setCurrentBiome] = useState(biome || BIOMES.FOREST);
 
+  // Stabilize callbacks to prevent unnecessary engine re-initialization
+  const callbacksRef = useRef({});
+  callbacksRef.current = {
+    onSelectHut,
+    onSelectAgent,
+    onSelectStation,
+    onHoverHut,
+    onOpenStargate,
+    onExitInterior,
+  };
+
+  const selectedSessionIdRef = useRef(selectedSessionId);
+  selectedSessionIdRef.current = selectedSessionId;
+
   // Engine systems persistent refs
   const engineRef = useRef({
     camera: null,
@@ -113,8 +127,19 @@ export function RpgCanvas({
   const enterHouseInterior = useCallback((hutSession) => {
     const engine = engineRef.current;
     if (!hutSession) return;
+    if (engine.activeView === 'interior') return; // Do not re-enter if already inside!
 
-    engine.lastExteriorPos = { x: engine.player.x, y: engine.player.y };
+    // Find the hut door coordinate to always guarantee valid exterior return position
+    const huts = engine.hutRenderer?.getHuts() || [];
+    const hut = huts.find(h => h.id === hutSession.id || (h.session && h.session.id === hutSession.id));
+    if (hut) {
+      engine.lastExteriorPos = { x: hut.doorX, y: hut.doorY + 20 };
+    } else if (engine.player && (engine.player.x > 500 || engine.player.y > 500)) {
+      engine.lastExteriorPos = { x: engine.player.x, y: engine.player.y };
+    } else {
+      engine.lastExteriorPos = { x: 1024, y: 1074 };
+    }
+
     engine.currentHutInterior = new HouseInterior(hutSession);
     engine.activeView = 'interior';
 
@@ -142,20 +167,24 @@ export function RpgCanvas({
     engine.currentHutInterior = null;
 
     // Return player to outside hut entrance
-    engine.player.x = engine.lastExteriorPos.x;
-    engine.player.y = engine.lastExteriorPos.y + 16;
+    const exitX = engine.lastExteriorPos?.x ?? (engine.tileMap?.centerX || 1024);
+    const exitY = engine.lastExteriorPos?.y ?? (engine.tileMap?.centerY ? engine.tileMap.centerY + 50 : 1074);
+    engine.player.x = exitX;
+    engine.player.y = exitY;
     engine.player.vx = 0;
     engine.player.vy = 0;
     engine.player.facing = 'down';
     engine.player.clearMoveTarget();
 
+    // Immediately snap camera to player outside to prevent black void / lost viewport!
+    engine.camera.centerOn(exitX, exitY, true);
     engine.camera.follow(engine.player);
-    engine.camera.setZoom(1.0);
+    engine.camera.setZoom(1.0, true);
 
     setHudState(prev => ({ ...prev, activeView: 'exterior', isFollowingPlayer: true }));
     sound.playDoorClose();
-    if (onExitInterior) onExitInterior();
-  }, [onExitInterior]);
+    if (callbacksRef.current.onExitInterior) callbacksRef.current.onExitInterior();
+  }, []);
 
   // Expose global helper for automated testing and shortcuts
   useEffect(() => {
@@ -227,8 +256,8 @@ export function RpgCanvas({
           const station = engine.currentHutInterior.getStationAt(p.x, p.y);
           if (station) {
             sound.playScroll();
-            if (onSelectStation) {
-              onSelectStation(station.type, engine.currentHutInterior.session, station);
+            if (callbacksRef.current.onSelectStation) {
+              callbacksRef.current.onSelectStation(station.type, engine.currentHutInterior.session, station);
             }
             return;
           }
@@ -236,17 +265,18 @@ export function RpgCanvas({
           const agent = engine.currentHutInterior.getAgentAt(p.x, p.y);
           if (agent) {
             sound.playClick();
-            if (onSelectAgent) onSelectAgent(agent, engine.currentHutInterior.session);
+            if (callbacksRef.current.onSelectAgent) {
+              callbacksRef.current.onSelectAgent(agent, engine.currentHutInterior.session);
+            }
             return;
           }
         } else {
           // Exterior Proximity
 
-          // 1. Dial Stargate if near portal / DHD
+          // 1. Open Stargate Dial Device if near portal / DHD
           if (engine.stargate?.isNear(p.x, p.y, 85)) {
-            engine.stargate.dial(() => {
-              if (onOpenStargate) onOpenStargate();
-            });
+            sound.playDhdClick();
+            if (callbacksRef.current.onOpenStargate) callbacksRef.current.onOpenStargate();
             return;
           }
 
@@ -260,8 +290,8 @@ export function RpgCanvas({
           if (p.nearbyStation) {
             sound.playScroll();
             engine.selectedStation = p.nearbyStation;
-            if (onSelectStation) {
-              onSelectStation(p.nearbyStation.type, getHutSession(p.nearbyStation.hutId), p.nearbyStation);
+            if (callbacksRef.current.onSelectStation) {
+              callbacksRef.current.onSelectStation(p.nearbyStation.type, getHutSession(p.nearbyStation.hutId), p.nearbyStation);
             }
             return;
           }
@@ -270,23 +300,25 @@ export function RpgCanvas({
           if (p.nearbyAgent) {
             sound.playClick();
             engine.selectedAgent = p.nearbyAgent;
-            if (onSelectAgent) onSelectAgent(p.nearbyAgent, getHutSession(p.nearbyAgent.hutId));
+            if (callbacksRef.current.onSelectAgent) {
+              callbacksRef.current.onSelectAgent(p.nearbyAgent, getHutSession(p.nearbyAgent.hutId));
+            }
             return;
           }
         }
       }
 
-      // Hotkey ESC or Backspace: Exit Interior View
+      // Hotkey ESC or Backspace: Exit Interior View (only if no modal is currently open)
       if ((e.code === 'Escape' || e.code === 'Backspace') && engine.activeView === 'interior') {
+        if (selectedSessionIdRef.current) return; // Let open modal close first!
         exitHouseInterior();
         return;
       }
 
-      // Hotkey G: Dial Stargate (Travel to Realm)
+      // Hotkey G: Open Stargate Dial Device (Travel to Realm)
       if (e.code === 'KeyG' && engine.activeView === 'exterior') {
-        engine.stargate?.dial(() => {
-          if (onOpenStargate) onOpenStargate();
-        });
+        sound.playDhdClick();
+        if (callbacksRef.current.onOpenStargate) callbacksRef.current.onOpenStargate();
       }
 
       // Hotkey B: Cycle Biome
@@ -367,7 +399,7 @@ export function RpgCanvas({
       window.removeEventListener('keyup', handleKeyUp);
       resizeObserver.disconnect();
     };
-  }, [cycleBiome, enterHouseInterior, exitHouseInterior, onOpenStargate, onSelectAgent, onSelectHut, onSelectStation]);
+  }, []); // Run engine initialization strictly once on mount
 
   // Update world entities when sessions prop changes
   useEffect(() => {
@@ -405,83 +437,106 @@ export function RpgCanvas({
     const newAgents = [];
 
     huts.forEach(hut => {
+      const sess = hut.session || {};
+      const subList = sess.subagents || [];
+      const coderSub = subList.find(s => s.role === 'coder' || s.station === 'forge') || subList[0];
+      const exploreSub = subList.find(s => s.role === 'explore' || s.station === 'library') || subList[1];
+      const qaSub = subList.find(s => s.role === 'reviewer' || s.station === 'alchemy') || subList[2];
+
+      // 1. Master Agent
+      const masterActivity = sess.latestActivity || sess.currentTask || (hut.active ? 'Orchestrating session goals' : 'Session idle');
       newAgents.push(
         new AgentSprite({
           id: `${hut.id}-master`,
-          name: `${hut.name} (Overseer)`,
+          name: `Lead: ${sess.agent || 'Master'}`,
           role: AGENT_ROLES.MASTER,
           status: hut.active ? AGENT_STATUSES.WORKING : AGENT_STATUSES.IDLE,
           hutId: hut.id,
           x: hut.doorX - 28,
           y: hut.doorY + 12,
-          currentTask: hut.active ? 'Orchestrating subagents & goals...' : 'Resting in guild sanctum',
+          currentTask: masterActivity,
         })
       );
 
+      // 2. Code Engineer (Forge)
       const forge = stations.find(s => s.hutId === hut.id && s.type === STATION_TYPES.FORGE);
       if (forge) {
+        const coderName = coderSub ? `Coder: ${coderSub.model || coderSub.role}` : `Coder (${sess.model || 'Code'})`;
+        const coderTask = coderSub?.latestActivity || coderSub?.recentTask || (hut.active ? 'Editing code & patches' : 'Idle (waiting for code)');
+        const isCoderWorking = coderSub ? coderSub.is_active : hut.active;
         newAgents.push(
           new AgentSprite({
             id: `${hut.id}-builder`,
-            name: 'Groric Hammerfall',
+            name: coderName,
             role: AGENT_ROLES.BUILD,
-            status: hut.active ? AGENT_STATUSES.WORKING : AGENT_STATUSES.IDLE,
+            status: isCoderWorking ? AGENT_STATUSES.WORKING : AGENT_STATUSES.IDLE,
             hutId: hut.id,
             stationId: forge.id,
             x: forge.x + 18,
             y: forge.y,
-            currentTask: hut.active ? 'Forging AST code modifications...' : 'Maintaining anvil & tongs',
+            currentTask: coderTask,
           })
         );
       }
 
+      // 3. Codebase Researcher (Library)
       const library = stations.find(s => s.hutId === hut.id && s.type === STATION_TYPES.LIBRARY);
       if (library) {
+        const exploreName = exploreSub ? `Explore: ${exploreSub.model || exploreSub.role}` : `Research (${sess.model || 'Search'})`;
+        const exploreTask = exploreSub?.latestActivity || exploreSub?.recentTask || (hut.active ? 'Reading workspace files & symbols' : 'Idle (ready to search)');
+        const isExploreWorking = exploreSub ? exploreSub.is_active : hut.active;
         newAgents.push(
           new AgentSprite({
             id: `${hut.id}-scholar`,
-            name: 'Sylas Moonwhisper',
+            name: exploreName,
             role: AGENT_ROLES.EXPLORE,
-            status: hut.active ? AGENT_STATUSES.WORKING : AGENT_STATUSES.IDLE,
+            status: isExploreWorking ? AGENT_STATUSES.WORKING : AGENT_STATUSES.IDLE,
             hutId: hut.id,
             stationId: library.id,
             x: library.x - 16,
             y: library.y + 4,
-            currentTask: hut.active ? 'Querying symbol definitions...' : 'Filing project parchments',
+            currentTask: exploreTask,
           })
         );
       }
 
+      // 4. Testing & QA (Alchemy)
       const alchemy = stations.find(s => s.hutId === hut.id && s.type === STATION_TYPES.ALCHEMY);
       if (alchemy) {
+        const qaName = qaSub ? `QA: ${qaSub.model || qaSub.role}` : `Test & QA (${sess.model || 'Review'})`;
+        const qaTask = qaSub?.latestActivity || qaSub?.recentTask || (hut.active ? 'Running test suite verification' : 'Idle (checks passing)');
+        const isQaWorking = qaSub ? qaSub.is_active : hut.active;
         newAgents.push(
           new AgentSprite({
             id: `${hut.id}-alchemist`,
-            name: 'Valen Fizzlewick',
+            name: qaName,
             role: AGENT_ROLES.REVIEW,
-            status: hut.active ? AGENT_STATUSES.WORKING : AGENT_STATUSES.IDLE,
+            status: isQaWorking ? AGENT_STATUSES.WORKING : AGENT_STATUSES.IDLE,
             hutId: hut.id,
             stationId: alchemy.id,
             x: alchemy.x + 14,
             y: alchemy.y + 2,
-            currentTask: hut.active ? 'Brewing regression test suite...' : 'Distilling potion reagents',
+            currentTask: qaTask,
           })
         );
       }
 
+      // 5. Task Coordinator (Notice Board)
       const board = stations.find(s => s.hutId === hut.id && s.type === STATION_TYPES.NOTICE_BOARD);
       if (board) {
+        const activeTodos = sess.todos?.filter(t => t.status === 'in_progress') || [];
+        const boardTask = activeTodos.length > 0 ? `Task: ${activeTodos[0].content}` : `${sess.todos?.length || 0} tasks tracked`;
         newAgents.push(
           new AgentSprite({
             id: `${hut.id}-rogue`,
-            name: 'Pip Swiftfoot',
+            name: 'Task Coordinator',
             role: AGENT_ROLES.TASK,
-            status: AGENT_STATUSES.IDLE,
+            status: activeTodos.length > 0 ? AGENT_STATUSES.WORKING : AGENT_STATUSES.IDLE,
             hutId: hut.id,
             stationId: board.id,
             x: board.x - 14,
             y: board.y + 6,
-            currentTask: 'Inspecting pending quest scrolls',
+            currentTask: boardTask,
           })
         );
       }
@@ -765,8 +820,8 @@ export function RpgCanvas({
         if (station) {
           sound.playScroll();
           engine.selectedStation = station;
-          if (onSelectStation) {
-            onSelectStation(station.type, engine.currentHutInterior.session, station);
+          if (callbacksRef.current.onSelectStation) {
+            callbacksRef.current.onSelectStation(station.type, engine.currentHutInterior.session, station);
           }
           return;
         }
@@ -776,8 +831,8 @@ export function RpgCanvas({
         if (agent) {
           sound.playClick();
           engine.selectedAgent = agent;
-          if (onSelectAgent) {
-            onSelectAgent(agent, engine.currentHutInterior.session);
+          if (callbacksRef.current.onSelectAgent) {
+            callbacksRef.current.onSelectAgent(agent, engine.currentHutInterior.session);
           }
           return;
         }
@@ -821,11 +876,10 @@ export function RpgCanvas({
     if (e.button === 0) {
       const worldPos = engine.camera.screenToWorld(mouseX, mouseY);
 
-      // 1. Check if clicked Stargate Portal / DHD (Dial Stargate!)
+      // 1. Check if clicked Stargate Portal / DHD (Open Stargate Dial Device!)
       if (engine.stargate && engine.stargate.containsPoint(worldPos.x, worldPos.y)) {
-        engine.stargate.dial(() => {
-          if (onOpenStargate) onOpenStargate();
-        });
+        sound.playDhdClick();
+        if (callbacksRef.current.onOpenStargate) callbacksRef.current.onOpenStargate();
         return;
       }
 
@@ -842,8 +896,8 @@ export function RpgCanvas({
       if (clickedStation) {
         sound.playScroll();
         engine.selectedStation = clickedStation;
-        if (onSelectStation) {
-          onSelectStation(clickedStation.type, getHutSession(clickedStation.hutId), clickedStation);
+        if (callbacksRef.current.onSelectStation) {
+          callbacksRef.current.onSelectStation(clickedStation.type, getHutSession(clickedStation.hutId), clickedStation);
         }
         return;
       }
@@ -853,8 +907,8 @@ export function RpgCanvas({
       if (clickedAgent) {
         sound.playClick();
         engine.selectedAgent = clickedAgent;
-        if (onSelectAgent) {
-          onSelectAgent(clickedAgent, getHutSession(clickedAgent.hutId));
+        if (callbacksRef.current.onSelectAgent) {
+          callbacksRef.current.onSelectAgent(clickedAgent, getHutSession(clickedAgent.hutId));
         }
         return;
       }
@@ -1024,9 +1078,8 @@ export function RpgCanvas({
               {/* Stargate Dial Button */}
               <button
                 onClick={() => {
-                  engineRef.current.stargate?.dial(() => {
-                    if (onOpenStargate) onOpenStargate();
-                  });
+                  sound.playDhdClick();
+                  if (callbacksRef.current.onOpenStargate) callbacksRef.current.onOpenStargate();
                 }}
                 title="Dial the Ancient Stargate to travel between realms [Hotkey: G]"
                 className="pixel-btn px-2.5 py-1.5 text-[9px] flex items-center gap-1.5 cursor-pointer shadow-lg bg-sky-950/80 border-sky-600 text-sky-200 hover:bg-sky-900"

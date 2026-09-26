@@ -18,7 +18,14 @@ export default function OverworldMapModal({
   const [dialingStatus, setDialingStatus] = useState('');
   const dialingTimerRef = useRef(null);
 
-  // Close on Escape
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      if (dialingTimerRef.current) clearTimeout(dialingTimerRef.current);
+    };
+  }, []);
+
+  // Close on Escape when not actively dialing
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape' && dialingStep === 0) {
@@ -27,10 +34,7 @@ export default function OverworldMapModal({
       }
     };
     window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      if (dialingTimerRef.current) clearTimeout(dialingTimerRef.current);
-    };
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose, dialingStep]);
 
   // Map projects to Galactic Planet Designations with 7-Chevron Addresses

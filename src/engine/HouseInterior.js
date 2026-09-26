@@ -80,15 +80,22 @@ export class HouseInterior {
     this.stations.push(masterDesk);
     this.furniture.push(masterDesk);
 
-    // Master Agent (Grand Mage) behind the command desk
+    // Subagent mapping from real session data
+    const subagents = this.session?.subagents || [];
+    const coderSub = subagents.find(s => s.role === 'coder' || s.station === 'forge') || subagents[0];
+    const exploreSub = subagents.find(s => s.role === 'explore' || s.station === 'library') || subagents[1];
+    const qaSub = subagents.find(s => s.role === 'reviewer' || s.station === 'alchemy') || subagents[2];
+
+    // Master Agent behind the command desk
+    const masterTask = this.session?.latestActivity || this.session?.currentTask || (isSessionActive ? 'Orchestrating session tasks' : 'Session idle');
     this.masterAgent = new AgentSprite({
       id: 'interior-master-agent',
-      name: this.session?.agent || 'Archmage Commander',
+      name: `Lead: ${this.session?.agent || 'Master'}`,
       role: AGENT_ROLES.MASTER,
       status: isSessionActive ? AGENT_STATUSES.WORKING : AGENT_STATUSES.IDLE,
       x: 416,
       y: 156,
-      currentTask: isSessionActive ? 'Directing session subagents & analyzing AST...' : 'Contemplating realm architecture',
+      currentTask: masterTask,
     });
     this.agents.push(this.masterAgent);
 
@@ -96,7 +103,7 @@ export class HouseInterior {
     const forgeStation = {
       id: 'interior-forge',
       type: STATION_TYPES.FORGE,
-      name: 'Guild Smithy Anvil',
+      name: 'Code Smithy & Diff Forge',
       roleTag: 'build',
       x: 160,
       y: 160,
@@ -104,7 +111,7 @@ export class HouseInterior {
       height: 54,
       solid: true,
       active: isSessionActive,
-      stat: '1,420 lines compiled',
+      stat: 'Inspect File Diffs & Git Patches',
     };
     this.stations.push(forgeStation);
     this.furniture.push(forgeStation);
@@ -118,15 +125,17 @@ export class HouseInterior {
       flicker: true,
     });
 
-    // Dwarf Blacksmith at forge
+    // Coder Agent at forge
+    const coderName = coderSub ? `Coder: ${coderSub.model || coderSub.role}` : `Coder (${this.session?.model || 'Code'})`;
+    const coderTask = coderSub?.latestActivity || coderSub?.recentTask || (isSessionActive ? 'Applying code edits & git commits' : 'Idle (waiting for code)');
     this.blacksmith = new AgentSprite({
       id: 'interior-blacksmith',
-      name: 'Groric Hammerfall',
+      name: coderName,
       role: AGENT_ROLES.BUILD,
-      status: isSessionActive ? AGENT_STATUSES.WORKING : AGENT_STATUSES.IDLE,
+      status: (coderSub ? coderSub.is_active : isSessionActive) ? AGENT_STATUSES.WORKING : AGENT_STATUSES.IDLE,
       x: 196,
       y: 158,
-      currentTask: isSessionActive ? 'Forging code diffs on the anvil...' : 'Sharpening smithy tools',
+      currentTask: coderTask,
     });
     this.agents.push(this.blacksmith);
 
@@ -134,7 +143,7 @@ export class HouseInterior {
     const scriptoriumStation = {
       id: 'interior-library',
       type: STATION_TYPES.LIBRARY,
-      name: 'Royal Scriptorium',
+      name: 'Research Desk & Log Chronicle',
       roleTag: 'explore',
       x: 672,
       y: 190,
@@ -142,7 +151,7 @@ export class HouseInterior {
       height: 56,
       solid: true,
       active: isSessionActive,
-      stat: '84 scrolls catalogued',
+      stat: 'Inspect Execution Logs & Chronicle',
     };
     this.stations.push(scriptoriumStation);
     this.furniture.push(scriptoriumStation);
@@ -156,15 +165,17 @@ export class HouseInterior {
       flicker: false,
     });
 
-    // Elf Scholar at scriptorium
+    // Explore / Research Agent at scriptorium
+    const exploreName = exploreSub ? `Explore: ${exploreSub.model || exploreSub.role}` : `Research (${this.session?.model || 'Docs'})`;
+    const exploreTask = exploreSub?.latestActivity || exploreSub?.recentTask || (isSessionActive ? 'Reading workspace files & symbols' : 'Idle (ready to explore)');
     this.scholar = new AgentSprite({
       id: 'interior-scholar',
-      name: 'Sylas Moonwhisper',
+      name: exploreName,
       role: AGENT_ROLES.EXPLORE,
-      status: isSessionActive ? AGENT_STATUSES.WORKING : AGENT_STATUSES.IDLE,
+      status: (exploreSub ? exploreSub.is_active : isSessionActive) ? AGENT_STATUSES.WORKING : AGENT_STATUSES.IDLE,
       x: 636,
       y: 194,
-      currentTask: isSessionActive ? 'Analyzing symbol references...' : 'Cataloguing archive scrolls',
+      currentTask: exploreTask,
     });
     this.agents.push(this.scholar);
 
@@ -172,7 +183,7 @@ export class HouseInterior {
     const alchemyStation = {
       id: 'interior-alchemy',
       type: STATION_TYPES.ALCHEMY,
-      name: 'Testing Crucible',
+      name: 'Testing & QA Crucible',
       roleTag: 'review',
       x: 672,
       y: 350,
@@ -180,7 +191,7 @@ export class HouseInterior {
       height: 52,
       solid: true,
       active: isSessionActive,
-      stat: '12 / 12 test suites passing',
+      stat: 'Test Suite & Linter Verification',
     };
     this.stations.push(alchemyStation);
     this.furniture.push(alchemyStation);
@@ -194,15 +205,17 @@ export class HouseInterior {
       flicker: true,
     });
 
-    // Alchemist Mage at crucible
+    // Test & QA Agent at crucible
+    const qaName = qaSub ? `QA: ${qaSub.model || qaSub.role}` : `Test & QA (${this.session?.model || 'Review'})`;
+    const qaTask = qaSub?.latestActivity || qaSub?.recentTask || (isSessionActive ? 'Running verification & tests' : 'Idle (checks passing)');
     this.alchemist = new AgentSprite({
       id: 'interior-alchemist',
-      name: 'Valen Fizzlewick',
+      name: qaName,
       role: AGENT_ROLES.REVIEW,
-      status: isSessionActive ? AGENT_STATUSES.WORKING : AGENT_STATUSES.IDLE,
+      status: (qaSub ? qaSub.is_active : isSessionActive) ? AGENT_STATUSES.WORKING : AGENT_STATUSES.IDLE,
       x: 636,
       y: 354,
-      currentTask: isSessionActive ? 'Brewing regression test verification...' : 'Restocking potion vials',
+      currentTask: qaTask,
     });
     this.agents.push(this.alchemist);
 

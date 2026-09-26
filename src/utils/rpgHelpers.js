@@ -69,56 +69,56 @@ export function getAgentClass(agentName = '', model = '') {
 
   if (name.includes('blacksmith') || name.includes('builder') || name.includes('coder') || mdl.includes('coder')) {
     return {
-      title: 'Dwarf Blacksmith',
-      specialty: 'Code Forging & Tool Mastery',
+      title: 'Code Engineer (Builder)',
+      specialty: 'File edits, patches, and build tools',
       avatar: '⚒️',
       color: 'text-amber-400',
       badgeClass: 'badge-gold',
-      station: 'The Great Anvil',
+      station: 'Code Forge & Anvil',
     };
   }
 
   if (name.includes('scholar') || name.includes('researcher') || name.includes('planner') || mdl.includes('qwen')) {
     return {
-      title: 'Elf Scholar',
-      specialty: 'Architecture & Strategy',
+      title: 'Codebase Researcher (Explore)',
+      specialty: 'Code search, file reading, and symbol lookups',
       avatar: '📜',
       color: 'text-emerald-400',
       badgeClass: 'badge-active',
-      station: 'The Royal Library',
+      station: 'Research Desk & Docs',
     };
   }
 
   if (name.includes('alchemist') || name.includes('debugger') || name.includes('reason') || mdl.includes('r1')) {
     return {
-      title: 'Alchemist Savant',
-      specialty: 'Transmutation & Deep Reasoning',
+      title: 'Test & QA Savant (Reviewer)',
+      specialty: 'Running test suites, linters, and verification',
       avatar: '⚗️',
       color: 'text-purple-400',
       badgeClass: 'badge-purple',
-      station: 'The Transmutation Lab',
+      station: 'Testing & QA Lab',
     };
   }
 
   if (name.includes('scout') || name.includes('subtask') || name.includes('terminal')) {
     return {
-      title: 'Rogue Scout',
-      specialty: 'Exploration & Rapid Dispatch',
+      title: 'Task Dispatcher (Subagent)',
+      specialty: 'Autonomous subtasks and rapid execution',
       avatar: '🗡️',
       color: 'text-sky-400',
       badgeClass: 'badge-mana',
-      station: 'The Watchtower',
+      station: 'Task Dispatch Board',
     };
   }
 
   // Default Master
   return {
-    title: 'Archmage Commander',
-    specialty: 'High Order Orchestration',
+    title: 'Session Lead (Master Agent)',
+    specialty: 'High-level orchestration and reasoning',
     avatar: '🧙‍♂️',
     color: 'text-indigo-400',
     badgeClass: 'badge-mana',
-    station: 'The Mystic Sanctum',
+    station: 'Master Command Desk',
   };
 }
 
