@@ -1,0 +1,37 @@
+{
+  "name": "opencode-rpg",
+  "version": "1.0.0",
+  "description": "An RPG style interface for interacting with opencode sessions",
+  "main": "server/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "server": "node server/index.js",
+    "dev:vite": "vite",
+    "dev": "concurrently -k -p \"[{name}]\" -n \"SERVER,CLIENT\" -c \"cyan,magenta\" \"node server/index.js\" \"vite\"",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "node server/index.js",
+    "test:server": "node server/verify.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "ssh://git@forgejo.lan:2222/mrhollen/opencode-rpg.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "lucide-react": "^1.48.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^10.0.5",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.3.1"
+  }
+}
