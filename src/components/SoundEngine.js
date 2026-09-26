@@ -608,6 +608,50 @@ class SoundEngine {
   }
 
   /**
+   * Stargate Wormhole Disengagement & Natural Shutdown
+   * Deep descending resonant power-down hum as the event horizon dissolves
+   */
+  playGateShutdown() {
+    if (this.muted) return;
+    this.init();
+    if (!this.ctx) return;
+
+    try {
+      const t = this.ctx.currentTime;
+
+      // Descending power-down sine hum
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(320, t);
+      osc.frequency.exponentialRampToValueAtTime(45, t + 0.7);
+
+      gain.gain.setValueAtTime(0.25, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.75);
+
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.75);
+
+      // Sub-harmonic resonant undertone
+      const subOsc = this.ctx.createOscillator();
+      const subGain = this.ctx.createGain();
+      subOsc.type = 'triangle';
+      subOsc.frequency.setValueAtTime(140, t);
+      subOsc.frequency.exponentialRampToValueAtTime(30, t + 0.6);
+
+      subGain.gain.setValueAtTime(0.18, t);
+      subGain.gain.exponentialRampToValueAtTime(0.001, t + 0.65);
+
+      subOsc.connect(subGain);
+      subGain.connect(this.ctx.destination);
+      subOsc.start(t);
+      subOsc.stop(t + 0.65);
+    } catch {}
+  }
+
+  /**
    * Stargate DHD Glyph Chime
    */
   playDhdClick() {

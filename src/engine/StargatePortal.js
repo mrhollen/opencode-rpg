@@ -15,11 +15,14 @@ export class StargatePortal {
     this.dhdY = y + 84;
     this.dhdRadius = 16;
 
-    // Gate States: 'idle', 'dialing', 'kawoosh', 'open'
-    this.state = 'open'; // default open/shimmering or idle
-    this.lockedChevrons = 7; // 0 to 9 locked
+    // Gate States: 'idle', 'dialing', 'kawoosh', 'open', 'shutdown'
+    this.state = 'idle'; // idle Naquadah ring by default until dialed or traveler arrives
+    this.lockedChevrons = 0; // 0 to 7 locked
     this.dialingTimer = 0;
     this.dialCallback = null;
+    this.openTimer = 0; // Count down to natural gate shutdown
+    this.shutdownTimer = 0;
+    this.shutdownDuration = 0.9;
 
     // Animations
     this.animTime = 0;
@@ -29,6 +32,22 @@ export class StargatePortal {
 
     // Light sources for Lighting engine
     this.lightSources = [];
+  }
+
+  // Engage gate on arrival from overworld travel (stays open for player, then shuts down naturally)
+  engageArrival(duration = 6.5) {
+    this.state = 'open';
+    this.lockedChevrons = 7;
+    this.openTimer = duration;
+    this.ringRotation = 0;
+  }
+
+  // Naturally shut down the wormhole
+  shutDown() {
+    if (this.state === 'idle' || this.state === 'shutdown') return;
+    this.state = 'shutdown';
+    this.shutdownTimer = this.shutdownDuration;
+    sound.playGateShutdown();
   }
 
   dial(onComplete = null) {
@@ -50,7 +69,7 @@ export class StargatePortal {
       const targetChevrons = Math.min(7, Math.floor(this.dialingTimer / 0.35) + 1);
       if (targetChevrons > this.lockedChevrons) {
         this.lockedChevrons = targetChevrons;
-        sound.playClick();
+        sound.playChevronLock(targetChevrons);
         if (particleSystem) {
           particleSystem.emitForgeSparks(this.x, this.y - this.radius, 4);
         }
@@ -60,7 +79,7 @@ export class StargatePortal {
       if (this.lockedChevrons >= 7 && this.dialingTimer > 2.6) {
         this.state = 'kawoosh';
         this.kawooshTime = 0;
-        sound.playPortal();
+        sound.playKawoosh();
 
         if (particleSystem) {
           // Explosive burst of blue energy particles
@@ -74,6 +93,7 @@ export class StargatePortal {
       this.kawooshTime += dt;
       if (this.kawooshTime >= this.kawooshDuration) {
         this.state = 'open';
+        this.openTimer = 8.0; // Stays open for 8 seconds, then disengages naturally!
         if (this.dialCallback) {
           this.dialCallback();
           this.dialCallback = null;
@@ -83,6 +103,14 @@ export class StargatePortal {
       // Gentle constant rotation of chevron constellations
       this.ringRotation += dt * 0.15;
 
+      // Natural auto-shutdown timer
+      if (this.openTimer > 0) {
+        this.openTimer -= dt;
+        if (this.openTimer <= 0) {
+          this.shutDown();
+        }
+      }
+
       // Occasional event horizon water droplets
       if (particleSystem && Math.random() < 0.15) {
         const angle = Math.random() * Math.PI * 2;
@@ -90,6 +118,12 @@ export class StargatePortal {
         const px = this.x + Math.cos(angle) * dist;
         const py = this.y + Math.sin(angle) * (dist * 0.75);
         particleSystem.emitWaterRipple(px, py);
+      }
+    } else if (this.state === 'shutdown') {
+      this.shutdownTimer -= dt;
+      if (this.shutdownTimer <= 0) {
+        this.state = 'idle';
+        this.lockedChevrons = 0;
       }
     }
   }
@@ -128,7 +162,10 @@ export class StargatePortal {
 
     // 5. Event Horizon ("The Puddle") or Kawoosh
     if (this.state === 'open') {
-      this.drawEventHorizon(ctx);
+      this.drawEventHorizon(ctx, 1.0);
+    } else if (this.state === 'shutdown') {
+      const dissolveAlpha = Math.max(0, this.shutdownTimer / this.shutdownDuration);
+      this.drawEventHorizon(ctx, dissolveAlpha);
     } else if (this.state === 'kawoosh') {
       this.drawKawoosh(ctx);
     }
@@ -251,28 +288,38 @@ export class StargatePortal {
   drawChevrons(ctx) {
     const { x, y, outerRadius } = this;
 
-    // 9 Chevrons positioned around the ring (0 = Top / 12 o'clock)
-    // Angles in radians:
-    const chevronAngles = [
-      -Math.PI / 2,                // Chevron 1 (Top Center - 90 deg)
-      -Math.PI / 2 + Math.PI / 4,  // Chevron 2 (Top Right)
-      -Math.PI / 2 + Math.PI / 2,  // Chevron 3 (Right)
-      -Math.PI / 2 + (3 * Math.PI) / 4, // Chevron 4 (Bottom Right)
-      Math.PI / 2,                 // Chevron 5 (Bottom Center)
-      Math.PI / 2 + Math.PI / 4,   // Chevron 6 (Bottom Left)
-      Math.PI,                     // Chevron 7 (Left)
-      Math.PI + Math.PI / 4,       // Chevron 8 (Top Left)
-      -Math.PI / 2 - Math.PI / 6,  // Chevron 9 (Upper Left offset)
+    // Canon SG-1 9 Chevrons Layout:
+    // Intra-galaxy 7-chevron addresses lock in sequence:
+    // 1: Top-Right (40°)
+    // 2: Top-Left (320°)
+    // 3: Mid-Right (85°)
+    // 4: Mid-Left (275°)
+    // 5: Lower-Right (130°)
+    // 6: Lower-Left (230°)
+    // 7: Top-Center Origin (0° / -Math.PI / 2)
+    // Chevrons 8 and 9 (165° & 195°) are at the pedestal/ramp base and skipped!
+    const toRad = deg => (deg - 90) * (Math.PI / 180);
+
+    const chevrons = [
+      { id: 7, angle: toRad(0), label: 'Chevron 7 (Origin)' },
+      { id: 1, angle: toRad(40), label: 'Chevron 1' },
+      { id: 3, angle: toRad(85), label: 'Chevron 3' },
+      { id: 5, angle: toRad(130), label: 'Chevron 5' },
+      { id: 8, angle: toRad(165), label: 'Chevron 8 (Pedestal Base)', isPedestal: true },
+      { id: 9, angle: toRad(195), label: 'Chevron 9 (Pedestal Base)', isPedestal: true },
+      { id: 6, angle: toRad(230), label: 'Chevron 6' },
+      { id: 4, angle: toRad(275), label: 'Chevron 4' },
+      { id: 2, angle: toRad(320), label: 'Chevron 2' },
     ];
 
-    chevronAngles.forEach((angle, index) => {
-      const isLocked = index < this.lockedChevrons;
-      const cx = x + Math.cos(angle) * (outerRadius - 2);
-      const cy = y + Math.sin(angle) * (outerRadius - 2);
+    chevrons.forEach((chev) => {
+      const isLocked = !chev.isPedestal && chev.id <= this.lockedChevrons && (this.state !== 'shutdown' || this.shutdownTimer > 0.3);
+      const cx = x + Math.cos(chev.angle) * (outerRadius - 2);
+      const cy = y + Math.sin(chev.angle) * (outerRadius - 2);
 
       ctx.save();
       ctx.translate(cx, cy);
-      ctx.rotate(angle + Math.PI / 2);
+      ctx.rotate(chev.angle + Math.PI / 2);
 
       // V-shaped mechanical chevron bracket
       ctx.fillStyle = '#0f172a';
@@ -283,7 +330,7 @@ export class StargatePortal {
       // Chevron Glowing Core
       if (isLocked) {
         // Glowing hot orange-red chevron lock!
-        const pulse = Math.sin(this.animTime * 12 + index) * 0.15 + 0.85;
+        const pulse = Math.sin(this.animTime * 12 + chev.id) * 0.15 + 0.85;
         ctx.fillStyle = '#ea580c';
         ctx.fillRect(-3, -5, 6, 6);
         ctx.fillStyle = '#fde047';
@@ -295,8 +342,8 @@ export class StargatePortal {
         ctx.arc(0, 0, 9, 0, Math.PI * 2);
         ctx.fill();
       } else {
-        // Inactive chevron core (dark rust)
-        ctx.fillStyle = '#78350f';
+        // Inactive chevron core (dark rust, dimmer for pedestal)
+        ctx.fillStyle = chev.isPedestal ? '#451a03' : '#78350f';
         ctx.fillRect(-3, -4, 6, 4);
       }
 
@@ -305,11 +352,14 @@ export class StargatePortal {
   }
 
   // The Event Horizon ("The Puddle") - Swirling aquatic blue wormhole
-  drawEventHorizon(ctx) {
+  drawEventHorizon(ctx, alpha = 1.0) {
     const { x, y, radius } = this;
     const r = radius - 8;
 
     ctx.save();
+    if (alpha < 1.0) {
+      ctx.globalAlpha = Math.max(0, alpha);
+    }
 
     // Clip to interior of the gate ring
     ctx.beginPath();

@@ -152,6 +152,7 @@ export function RpgCanvas({
     engine.player.clearMoveTarget();
 
     // Center camera on room
+    engine.camera.setInteriorMode(true, 832, 576);
     engine.camera.unfollow();
     engine.camera.centerOn(416, 288, true);
     engine.camera.setZoom(1.15, true);
@@ -177,6 +178,7 @@ export function RpgCanvas({
     engine.player.clearMoveTarget();
 
     // Immediately snap camera to player outside to prevent black void / lost viewport!
+    engine.camera.setInteriorMode(false);
     engine.camera.centerOn(exitX, exitY, true);
     engine.camera.follow(engine.player);
     engine.camera.setZoom(1.0, true);
@@ -404,6 +406,9 @@ export function RpgCanvas({
   // Update world entities when sessions prop changes
   useEffect(() => {
     refreshWorldEntities(sessions);
+    if (engineRef.current.stargate && sessions.length > 0) {
+      engineRef.current.stargate.engageArrival(6.5);
+    }
   }, [sessions]);
 
   // Center camera on selected hut if selectedSessionId changes
@@ -670,6 +675,10 @@ export function RpgCanvas({
 
     if (engine.activeView === 'interior' && engine.currentHutInterior) {
       // 1. RENDER HOUSE INTERIOR
+      // Clean dark void outside the centered room
+      ctx.fillStyle = '#09090b';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
       engine.camera.apply(ctx);
 
       engine.currentHutInterior.render(
@@ -815,24 +824,24 @@ export function RpgCanvas({
       if (e.button === 0) {
         const worldPos = engine.camera.screenToWorld(mouseX, mouseY);
 
-        // Check if clicked an Interior Station
+        // 1. Check if clicked an Interior Agent (Prioritize agent over station!)
+        const agent = engine.currentHutInterior.getAgentAt(worldPos.x, worldPos.y);
+        if (agent) {
+          sound.playClick();
+          engine.selectedAgent = agent;
+          if (callbacksRef.current.onSelectAgent) {
+            callbacksRef.current.onSelectAgent(agent.subagentData || agent, engine.currentHutInterior.session);
+          }
+          return;
+        }
+
+        // 2. Check if clicked an Interior Station
         const station = engine.currentHutInterior.getStationAt(worldPos.x, worldPos.y);
         if (station) {
           sound.playScroll();
           engine.selectedStation = station;
           if (callbacksRef.current.onSelectStation) {
             callbacksRef.current.onSelectStation(station.type, engine.currentHutInterior.session, station);
-          }
-          return;
-        }
-
-        // Check if clicked an Interior Agent
-        const agent = engine.currentHutInterior.getAgentAt(worldPos.x, worldPos.y);
-        if (agent) {
-          sound.playClick();
-          engine.selectedAgent = agent;
-          if (callbacksRef.current.onSelectAgent) {
-            callbacksRef.current.onSelectAgent(agent, engine.currentHutInterior.session);
           }
           return;
         }
@@ -891,24 +900,24 @@ export function RpgCanvas({
         return;
       }
 
-      // 3. Check if clicked a Station
-      const clickedStation = engine.stationRenderer.getStationAt(worldPos.x, worldPos.y);
-      if (clickedStation) {
-        sound.playScroll();
-        engine.selectedStation = clickedStation;
-        if (callbacksRef.current.onSelectStation) {
-          callbacksRef.current.onSelectStation(clickedStation.type, getHutSession(clickedStation.hutId), clickedStation);
-        }
-        return;
-      }
-
-      // 4. Check if clicked an Agent
+      // 3. Check if clicked an Agent (Prioritize agent over station!)
       const clickedAgent = engine.agents.find(a => a.containsPoint(worldPos.x, worldPos.y));
       if (clickedAgent) {
         sound.playClick();
         engine.selectedAgent = clickedAgent;
         if (callbacksRef.current.onSelectAgent) {
           callbacksRef.current.onSelectAgent(clickedAgent, getHutSession(clickedAgent.hutId));
+        }
+        return;
+      }
+
+      // 4. Check if clicked a Station
+      const clickedStation = engine.stationRenderer.getStationAt(worldPos.x, worldPos.y);
+      if (clickedStation) {
+        sound.playScroll();
+        engine.selectedStation = clickedStation;
+        if (callbacksRef.current.onSelectStation) {
+          callbacksRef.current.onSelectStation(clickedStation.type, getHutSession(clickedStation.hutId), clickedStation);
         }
         return;
       }
@@ -946,8 +955,8 @@ export function RpgCanvas({
     const worldPos = engine.camera.screenToWorld(mouseX, mouseY);
 
     if (engine.activeView === 'interior' && engine.currentHutInterior) {
-      engine.hoveredStation = engine.currentHutInterior.getStationAt(worldPos.x, worldPos.y) || null;
       engine.hoveredAgent = engine.currentHutInterior.getAgentAt(worldPos.x, worldPos.y) || null;
+      engine.hoveredStation = !engine.hoveredAgent ? (engine.currentHutInterior.getStationAt(worldPos.x, worldPos.y) || null) : null;
       canvas.style.cursor = (engine.hoveredStation || engine.hoveredAgent || engine.currentHutInterior.isAtExit(worldPos.x, worldPos.y)) ? 'pointer' : 'default';
       return;
     }
@@ -958,8 +967,8 @@ export function RpgCanvas({
       onHoverHut(engine.hoveredHut ? (engine.hoveredHut.session || engine.hoveredHut) : null);
     }
 
-    engine.hoveredStation = engine.stationRenderer?.getStationAt(worldPos.x, worldPos.y) || null;
     engine.hoveredAgent = engine.agents.find(a => a.containsPoint(worldPos.x, worldPos.y)) || null;
+    engine.hoveredStation = !engine.hoveredAgent ? (engine.stationRenderer?.getStationAt(worldPos.x, worldPos.y) || null) : null;
 
     const isHoveringStargate = engine.stargate && engine.stargate.containsPoint(worldPos.x, worldPos.y);
     engine.hoveredStargate = isHoveringStargate;

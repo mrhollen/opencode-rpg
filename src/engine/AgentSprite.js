@@ -446,10 +446,11 @@ export class AgentSprite {
   }
 
   containsPoint(worldX, worldY) {
-    const left = this.x - this.width / 2;
-    const right = this.x + this.width / 2;
-    const top = this.y - this.height / 2 - 10;
-    const bottom = this.y + this.height / 2 + 10;
+    // Generous hitbox including sprite body, overhead name tag, and speech bubble
+    const left = this.x - this.width / 2 - 8;
+    const right = this.x + this.width / 2 + 8;
+    const top = this.y - this.height / 2 - 26;
+    const bottom = this.y + this.height / 2 + 12;
     return worldX >= left && worldX <= right && worldY >= top && worldY <= bottom;
   }
 }

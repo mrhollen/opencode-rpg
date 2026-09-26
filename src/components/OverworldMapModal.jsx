@@ -6,6 +6,33 @@ import { formatMana, formatGoldCost } from '../utils/rpgHelpers';
 // Ancient Stargate Glyphs
 const GLYPHS = ['ᚠ', 'ᛚ', 'ᛟ', 'ᚱ', 'ᛖ', 'ᛊ', 'ᛒ', 'ᛏ', 'ᛞ', 'ᚲ', 'ᚺ', 'ᛗ', 'ᛉ', 'ᚷ', 'ᚨ', 'ᛃ', 'ᛋ', 'ᛐ', 'ᛜ', 'ᚦ'];
 
+// Canon SG-1 9-Chevron Ring Layout:
+// Intra-galaxy 7-chevron addresses alternate sides, locking:
+// 1 (Top-Right, 40°), 2 (Top-Left, 320°), 3 (Mid-Right, 85°), 4 (Mid-Left, 275°),
+// 5 (Lower-Right, 130°), 6 (Lower-Left, 230°), 7 (Top-Center Origin, 0°).
+// The bottom two chevrons (8 and 9 at 165° & 195°) are buried into the ramp/pedestal and skipped!
+const STARGATE_CHEVRONS = [
+  { id: 7, deg: 0, label: 'Chevron 7 (Origin / Master Lock)' },
+  { id: 1, deg: 40, label: 'Chevron 1 (Top-Right)' },
+  { id: 3, deg: 85, label: 'Chevron 3 (Mid-Right)' },
+  { id: 5, deg: 130, label: 'Chevron 5 (Lower-Right)' },
+  { id: 8, deg: 165, label: 'Chevron 8 (Pedestal Base)', isPedestal: true },
+  { id: 9, deg: 195, label: 'Chevron 9 (Pedestal Base)', isPedestal: true },
+  { id: 6, deg: 230, label: 'Chevron 6 (Lower-Left)' },
+  { id: 4, deg: 275, label: 'Chevron 4 (Mid-Left)' },
+  { id: 2, deg: 320, label: 'Chevron 2 (Top-Left)' },
+];
+
+const CHEVRON_STATUS_LABELS = {
+  1: 'Encoding Chevron 1 (Top-Right)... CHEVRON 1 LOCKED',
+  2: 'Encoding Chevron 2 (Top-Left)... CHEVRON 2 LOCKED',
+  3: 'Encoding Chevron 3 (Mid-Right)... CHEVRON 3 LOCKED',
+  4: 'Encoding Chevron 4 (Mid-Left)... CHEVRON 4 LOCKED',
+  5: 'Encoding Chevron 5 (Lower-Right)... CHEVRON 5 LOCKED',
+  6: 'Encoding Chevron 6 (Lower-Left)... CHEVRON 6 LOCKED',
+  7: 'POINT OF ORIGIN: Chevron 7 LOCKED! (Pedestal chevrons skipped)',
+};
+
 export default function OverworldMapModal({
   projects = [],
   currentProject,
@@ -83,7 +110,7 @@ export default function OverworldMapModal({
     if (planetIdx >= 0) setSelectedPlanetIndex(planetIdx);
 
     setDialingStep(1);
-    setDialingStatus('Dialing Computer Online: Encoding Chevron 1...');
+    setDialingStatus(CHEVRON_STATUS_LABELS[1]);
     sound.playChevronLock(1);
 
     // Sequence through chevrons 1 to 7
@@ -93,13 +120,13 @@ export default function OverworldMapModal({
       currentStep++;
       if (currentStep <= 7) {
         setDialingStep(currentStep);
-        setDialingStatus(`Chevron ${currentStep} ${currentStep === 7 ? 'LOCKED!' : 'encoded...'}`);
+        setDialingStatus(CHEVRON_STATUS_LABELS[currentStep] || `Chevron ${currentStep} locked...`);
         sound.playChevronLock(currentStep);
         dialingTimerRef.current = setTimeout(stepInterval, 480);
       } else {
         // Step 8: Wormhole KAWOOSH!
         setDialingStep(8);
-        setDialingStatus('WORMHOLE ESTABLISHED! KAWOOSH!');
+        setDialingStatus('WORMHOLE ESTABLISHED! KAWOOSH! VORTEX STABLE');
         setIsWormholeActive(true);
         sound.playKawoosh();
 
@@ -171,16 +198,19 @@ export default function OverworldMapModal({
             <div className="relative w-64 h-64 sm:w-72 sm:h-72 flex items-center justify-center my-2">
               {/* Outer Metallic Ring with 9 Chevrons */}
               <div className={`absolute inset-0 rounded-full border-8 border-stone-700 shadow-2xl bg-stone-900/40 flex items-center justify-center transition-all duration-700 ${isWormholeActive ? 'shadow-cyan-500/50 border-cyan-700' : ''}`}>
-                {/* 9 Chevrons around perimeter */}
-                {[0, 40, 80, 120, 160, 200, 240, 280, 320].map((deg, i) => {
-                  const isLocked = i < dialingStep;
+                {/* 9 Chevrons around perimeter (SG-1 sequence, bottom 2 skipped) */}
+                {STARGATE_CHEVRONS.map((chev) => {
+                  const isLocked = !chev.isPedestal && chev.id <= dialingStep;
                   return (
                     <div
-                      key={deg}
-                      style={{ transform: `rotate(${deg}deg) translateY(-132px)` }}
+                      key={chev.deg}
+                      title={chev.label}
+                      style={{ transform: `rotate(${chev.deg}deg) translateY(-132px)` }}
                       className={`absolute w-6 h-4 rounded-sm border-2 transition-all duration-200 flex items-center justify-center ${
                         isLocked
-                          ? 'bg-amber-500 border-yellow-300 shadow-md shadow-amber-500/80 scale-110'
+                          ? 'bg-amber-500 border-yellow-300 shadow-md shadow-amber-500/80 scale-110 z-10'
+                          : chev.isPedestal
+                          ? 'bg-stone-900 border-stone-800 opacity-40'
                           : 'bg-stone-800 border-stone-600'
                       }`}
                     >
@@ -188,6 +218,11 @@ export default function OverworldMapModal({
                     </div>
                   );
                 })}
+
+                {/* Base Ramp / Pedestal Platform concealing the bottom 2 chevrons */}
+                <div className="absolute -bottom-2 w-28 h-6 bg-gradient-to-t from-stone-950 via-stone-900 to-stone-800 border-t border-stone-600 rounded-t-sm flex items-center justify-center z-10 shadow-lg">
+                  <span className="text-[7px] font-mono text-stone-500 tracking-wider">PEDESTAL RAMP</span>
+                </div>
 
                 {/* Spinning Inner Glyph Ring */}
                 <div

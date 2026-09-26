@@ -80,11 +80,31 @@ export class HouseInterior {
     this.stations.push(masterDesk);
     this.furniture.push(masterDesk);
 
-    // Subagent mapping from real session data
+    // Helper to map role strings to sprite class
+    const mapSubRole = (r = '') => {
+      const s = (r || '').toLowerCase();
+      if (s.includes('code') || s.includes('dev') || s.includes('build') || s.includes('forge')) return AGENT_ROLES.BUILD;
+      if (s.includes('explore') || s.includes('research') || s.includes('doc') || s.includes('lib')) return AGENT_ROLES.EXPLORE;
+      if (s.includes('review') || s.includes('qa') || s.includes('test') || s.includes('alchem')) return AGENT_ROLES.REVIEW;
+      return AGENT_ROLES.TASK;
+    };
+
+    // Subagents collection from real session data
     const subagents = this.session?.subagents || [];
-    const coderSub = subagents.find(s => s.role === 'coder' || s.station === 'forge') || subagents[0];
-    const exploreSub = subagents.find(s => s.role === 'explore' || s.station === 'library') || subagents[1];
-    const qaSub = subagents.find(s => s.role === 'reviewer' || s.station === 'alchemy') || subagents[2];
+    const assignedSubIds = new Set();
+
+    // Find best match for each primary station
+    const coderSub = subagents.find(s => mapSubRole(s.role || s.agent) === AGENT_ROLES.BUILD);
+    if (coderSub) assignedSubIds.add(coderSub.id);
+
+    const exploreSub = subagents.find(s => !assignedSubIds.has(s.id) && mapSubRole(s.role || s.agent) === AGENT_ROLES.EXPLORE);
+    if (exploreSub) assignedSubIds.add(exploreSub.id);
+
+    const qaSub = subagents.find(s => !assignedSubIds.has(s.id) && mapSubRole(s.role || s.agent) === AGENT_ROLES.REVIEW);
+    if (qaSub) assignedSubIds.add(qaSub.id);
+
+    const taskSub = subagents.find(s => !assignedSubIds.has(s.id));
+    if (taskSub) assignedSubIds.add(taskSub.id);
 
     // Master Agent behind the command desk
     const masterTask = this.session?.latestActivity || this.session?.currentTask || (isSessionActive ? 'Orchestrating session tasks' : 'Session idle');
@@ -97,6 +117,14 @@ export class HouseInterior {
       y: 156,
       currentTask: masterTask,
     });
+    this.masterAgent.subagentData = {
+      id: this.session?.id,
+      agent: this.session?.agent || 'team-lead',
+      model: this.session?.model,
+      role: 'master',
+      is_active: isSessionActive,
+      title: this.session?.title,
+    };
     this.agents.push(this.masterAgent);
 
     // 3. Blacksmith Forge & Heavy Anvil (North-West corner)
@@ -107,8 +135,8 @@ export class HouseInterior {
       roleTag: 'build',
       x: 160,
       y: 160,
-      width: 80,
-      height: 54,
+      width: 76,
+      height: 50,
       solid: true,
       active: isSessionActive,
       stat: 'Inspect File Diffs & Git Patches',
@@ -125,11 +153,11 @@ export class HouseInterior {
       flicker: true,
     });
 
-    // Coder Agent at forge
-    const coderName = coderSub ? `Coder: ${coderSub.model || coderSub.role}` : `Coder (${this.session?.model || 'Code'})`;
+    // Coder Agent at forge (positioned so both agent and anvil can be clicked)
+    const coderName = coderSub ? `Coder: ${coderSub.model || coderSub.role || coderSub.agent}` : `Coder (${this.session?.model || 'Code'})`;
     const coderTask = coderSub?.latestActivity || coderSub?.recentTask || (isSessionActive ? 'Applying code edits & git commits' : 'Idle (waiting for code)');
     this.blacksmith = new AgentSprite({
-      id: 'interior-blacksmith',
+      id: coderSub ? `interior-sub-${coderSub.id}` : 'interior-blacksmith',
       name: coderName,
       role: AGENT_ROLES.BUILD,
       status: (coderSub ? coderSub.is_active : isSessionActive) ? AGENT_STATUSES.WORKING : AGENT_STATUSES.IDLE,
@@ -137,6 +165,7 @@ export class HouseInterior {
       y: 158,
       currentTask: coderTask,
     });
+    if (coderSub) this.blacksmith.subagentData = coderSub;
     this.agents.push(this.blacksmith);
 
     // 4. Royal Scriptorium & Library (East Wall)
@@ -147,8 +176,8 @@ export class HouseInterior {
       roleTag: 'explore',
       x: 672,
       y: 190,
-      width: 78,
-      height: 56,
+      width: 74,
+      height: 52,
       solid: true,
       active: isSessionActive,
       stat: 'Inspect Execution Logs & Chronicle',
@@ -166,10 +195,10 @@ export class HouseInterior {
     });
 
     // Explore / Research Agent at scriptorium
-    const exploreName = exploreSub ? `Explore: ${exploreSub.model || exploreSub.role}` : `Research (${this.session?.model || 'Docs'})`;
+    const exploreName = exploreSub ? `Explore: ${exploreSub.model || exploreSub.role || exploreSub.agent}` : `Research (${this.session?.model || 'Docs'})`;
     const exploreTask = exploreSub?.latestActivity || exploreSub?.recentTask || (isSessionActive ? 'Reading workspace files & symbols' : 'Idle (ready to explore)');
     this.scholar = new AgentSprite({
-      id: 'interior-scholar',
+      id: exploreSub ? `interior-sub-${exploreSub.id}` : 'interior-scholar',
       name: exploreName,
       role: AGENT_ROLES.EXPLORE,
       status: (exploreSub ? exploreSub.is_active : isSessionActive) ? AGENT_STATUSES.WORKING : AGENT_STATUSES.IDLE,
@@ -177,6 +206,7 @@ export class HouseInterior {
       y: 194,
       currentTask: exploreTask,
     });
+    if (exploreSub) this.scholar.subagentData = exploreSub;
     this.agents.push(this.scholar);
 
     // 5. Alchemical Testing Laboratory (North-East corner)
@@ -187,8 +217,8 @@ export class HouseInterior {
       roleTag: 'review',
       x: 672,
       y: 350,
-      width: 74,
-      height: 52,
+      width: 70,
+      height: 48,
       solid: true,
       active: isSessionActive,
       stat: 'Test Suite & Linter Verification',
@@ -206,10 +236,10 @@ export class HouseInterior {
     });
 
     // Test & QA Agent at crucible
-    const qaName = qaSub ? `QA: ${qaSub.model || qaSub.role}` : `Test & QA (${this.session?.model || 'Review'})`;
+    const qaName = qaSub ? `QA: ${qaSub.model || qaSub.role || qaSub.agent}` : `Test & QA (${this.session?.model || 'Review'})`;
     const qaTask = qaSub?.latestActivity || qaSub?.recentTask || (isSessionActive ? 'Running verification & tests' : 'Idle (checks passing)');
     this.alchemist = new AgentSprite({
-      id: 'interior-alchemist',
+      id: qaSub ? `interior-sub-${qaSub.id}` : 'interior-alchemist',
       name: qaName,
       role: AGENT_ROLES.REVIEW,
       status: (qaSub ? qaSub.is_active : isSessionActive) ? AGENT_STATUSES.WORKING : AGENT_STATUSES.IDLE,
@@ -217,6 +247,7 @@ export class HouseInterior {
       y: 354,
       currentTask: qaTask,
     });
+    if (qaSub) this.alchemist.subagentData = qaSub;
     this.agents.push(this.alchemist);
 
     // 6. Wall Bounty & Quest Board (West Wall)
@@ -227,25 +258,28 @@ export class HouseInterior {
       roleTag: 'task',
       x: 130,
       y: 350,
-      width: 60,
-      height: 48,
+      width: 56,
+      height: 44,
       solid: true,
       active: true,
-      stat: '4 pending objectives',
+      stat: 'Pending session tasks',
     };
     this.stations.push(boardStation);
     this.furniture.push(boardStation);
 
-    // Apprentice Rogue near bounty board
+    // Task / Rogue Agent near bounty board
+    const taskName = taskSub ? `Task: ${taskSub.model || taskSub.role || taskSub.agent}` : 'Coordinator';
+    const taskTask = taskSub?.latestActivity || taskSub?.recentTask || 'Managing task queue';
     this.rogue = new AgentSprite({
-      id: 'interior-rogue',
-      name: 'Pip Swiftfoot',
+      id: taskSub ? `interior-sub-${taskSub.id}` : 'interior-rogue',
+      name: taskName,
       role: AGENT_ROLES.TASK,
-      status: AGENT_STATUSES.IDLE,
+      status: (taskSub ? taskSub.is_active : false) ? AGENT_STATUSES.WORKING : AGENT_STATUSES.IDLE,
       x: 168,
       y: 358,
-      currentTask: 'Reviewing session dispatch scrolls',
+      currentTask: taskTask,
     });
+    if (taskSub) this.rogue.subagentData = taskSub;
     this.agents.push(this.rogue);
 
     // 7. Treasury & Token Vault (South-East near wall)
@@ -256,8 +290,8 @@ export class HouseInterior {
       roleTag: 'tokens',
       x: 660,
       y: 470,
-      width: 58,
-      height: 40,
+      width: 54,
+      height: 38,
       solid: true,
       active: isSessionActive,
       stat: `${(this.session?.tokens_input || 14250).toLocaleString()} Tokens`,
@@ -272,13 +306,70 @@ export class HouseInterior {
       name: 'Royal Courier Desk',
       x: 160,
       y: 470,
-      width: 68,
-      height: 44,
+      width: 64,
+      height: 40,
       solid: true,
       description: 'Carrier raven post & decree dispatch desk',
     };
     this.stations.push(messengerDesk);
     this.furniture.push(messengerDesk);
+
+    // 9. COLLABORATIVE GUILD WORKBENCHES FOR ALL REMAINING SUBAGENTS
+    // Every single spawned subagent has a designated craft table and visible sprite!
+    const extraSubagents = subagents.filter(s => !assignedSubIds.has(s.id));
+    const EXTRA_WORKBENCH_SLOTS = [
+      { x: 270, y: 220, deskY: 236 },
+      { x: 330, y: 220, deskY: 236 },
+      { x: 500, y: 220, deskY: 236 },
+      { x: 560, y: 220, deskY: 236 },
+      { x: 270, y: 300, deskY: 316 },
+      { x: 330, y: 300, deskY: 316 },
+      { x: 500, y: 300, deskY: 316 },
+      { x: 560, y: 300, deskY: 316 },
+      { x: 270, y: 380, deskY: 396 },
+      { x: 330, y: 380, deskY: 396 },
+      { x: 500, y: 380, deskY: 396 },
+      { x: 560, y: 380, deskY: 396 },
+      { x: 96,  y: 250, deskY: 266 },
+      { x: 736, y: 250, deskY: 266 },
+      { x: 96,  y: 410, deskY: 426 },
+      { x: 736, y: 410, deskY: 426 },
+      { x: 270, y: 450, deskY: 466 },
+      { x: 560, y: 450, deskY: 466 },
+    ];
+
+    extraSubagents.forEach((sub, idx) => {
+      const slot = EXTRA_WORKBENCH_SLOTS[idx % EXTRA_WORKBENCH_SLOTS.length];
+      const offsetX = Math.floor(idx / EXTRA_WORKBENCH_SLOTS.length) * 12;
+      const posX = slot.x + offsetX;
+      const posY = slot.y;
+
+      // Add drafting desk furniture item
+      const deskItem = {
+        id: `interior-desk-${sub.id}`,
+        type: 'craft_table',
+        name: `Worktable: ${sub.agent || 'Subagent'}`,
+        x: posX,
+        y: slot.deskY,
+        width: 38,
+        height: 22,
+        solid: true,
+      };
+      this.furniture.push(deskItem);
+
+      // Add agent sprite
+      const subSprite = new AgentSprite({
+        id: `interior-sub-${sub.id}`,
+        name: `${sub.agent || 'subagent'}: ${sub.model || 'model'}`,
+        role: mapSubRole(sub.role || sub.agent),
+        status: sub.is_active ? AGENT_STATUSES.WORKING : AGENT_STATUSES.IDLE,
+        x: posX,
+        y: posY,
+        currentTask: sub.latestActivity || sub.recentTask || sub.title,
+      });
+      subSprite.subagentData = sub;
+      this.agents.push(subSprite);
+    });
 
     // Wall Hanging Lanterns (Warm ambient light)
     this.lightSources.push({ x: 260, y: 110, radius: 110, color: '#fef08a', flicker: true });
@@ -332,10 +423,10 @@ export class HouseInterior {
 
   getStationAt(worldX, worldY) {
     for (const s of this.stations) {
-      const left = s.x - s.width / 2 - 8;
-      const right = s.x + s.width / 2 + 8;
-      const top = s.y - s.height / 2 - 8;
-      const bottom = s.y + s.height / 2 + 8;
+      const left = s.x - s.width / 2;
+      const right = s.x + s.width / 2;
+      const top = s.y - s.height / 2;
+      const bottom = s.y + s.height / 2;
 
       if (worldX >= left && worldX <= right && worldY >= top && worldY <= bottom) {
         return s;
@@ -666,11 +757,32 @@ export class HouseInterior {
       case 'messenger_desk':
         this.drawMessengerDesk(ctx, x, y);
         break;
+      case 'craft_table':
+        this.drawCraftTable(ctx, x, y);
+        break;
     }
 
     if (isHighlighted) {
       this.drawTooltip(ctx, item);
     }
+  }
+
+  drawCraftTable(ctx, x, y) {
+    // Sturdy wooden guild craft / drafting table
+    ctx.fillStyle = '#451a03';
+    ctx.fillRect(x - 20, y - 10, 40, 20);
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(x - 18, y - 8, 36, 16);
+
+    // Parchment scroll or blueprint
+    ctx.fillStyle = '#fef3c7';
+    ctx.fillRect(x - 10, y - 5, 20, 10);
+
+    // Little inkwell & quill
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(x + 11, y - 6, 4, 4);
+    ctx.fillStyle = '#f59e0b';
+    ctx.fillRect(x + 12, y - 9, 1, 3);
   }
 
   drawMasterDesk(ctx, x, y, isHighlighted) {

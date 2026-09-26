@@ -33,6 +33,20 @@ export class Camera {
     this.shakeTimer = 0;
     this.shakeOffsetX = 0;
     this.shakeOffsetY = 0;
+
+    // Interior room bounds and centering
+    this.isInterior = false;
+    this.interiorWidth = 832;
+    this.interiorHeight = 576;
+  }
+
+  setInteriorMode(isInterior, width = 832, height = 576) {
+    this.isInterior = isInterior;
+    this.interiorWidth = width;
+    this.interiorHeight = height;
+    if (isInterior) {
+      this.target = null;
+    }
   }
 
   resize(width, height) {
@@ -121,6 +135,29 @@ export class Camera {
     } else {
       this.shakeOffsetX = 0;
       this.shakeOffsetY = 0;
+    }
+
+    if (this.isInterior) {
+      // In interior mode, if viewport is larger than room, lock camera to room center so it is dead center on screen!
+      const visibleW = this.viewportWidth / this.zoom;
+      const visibleH = this.viewportHeight / this.zoom;
+
+      if (visibleW >= this.interiorWidth) {
+        this.x = this.interiorWidth / 2;
+        this.targetX = this.interiorWidth / 2;
+      } else {
+        const halfW = visibleW / 2;
+        this.x = Math.max(halfW, Math.min(this.interiorWidth - halfW, this.x));
+      }
+
+      if (visibleH >= this.interiorHeight) {
+        this.y = this.interiorHeight / 2;
+        this.targetY = this.interiorHeight / 2;
+      } else {
+        const halfH = visibleH / 2;
+        this.y = Math.max(halfH, Math.min(this.interiorHeight - halfH, this.y));
+      }
+      return;
     }
 
     // Soft clamp inside world bounds
