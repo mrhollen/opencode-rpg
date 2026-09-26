@@ -420,19 +420,35 @@ function broadcastSse(eventType, data) {
   }
 }
 
-// Background poller ticking every 3 seconds
-const SSE_POLL_INTERVAL_MS = 3000;
+// Background poller ticking every 1.2 seconds for real-time tracking
+const SSE_POLL_INTERVAL_MS = 1200;
 const poller = setInterval(() => {
   if (sseClients.size === 0) return;
 
   try {
-    const { hasChanges, updatedSession, newToolCall, completedTodo } =
+    const { hasChanges, updatedSession, newToolCall, completedTodo, activeSessionIds } =
       dbService.checkDbUpdates(lastSeenTimestamps);
 
     if (hasChanges) {
+      broadcastSse('world_updated', {
+        type: 'world_updated',
+        updatedSession,
+        newToolCall,
+        completedTodo,
+        activeSessionIds,
+        timestamp: Date.now(),
+      });
+      broadcastSse(null, {
+        type: 'world_updated',
+        updatedSession,
+        newToolCall,
+        completedTodo,
+        activeSessionIds,
+        timestamp: Date.now(),
+      });
+
       if (updatedSession) {
         broadcastSse('session_updated', { type: 'session_updated', session: updatedSession });
-        broadcastSse(null, { type: 'session_updated', session: updatedSession });
       }
 
       if (newToolCall) {

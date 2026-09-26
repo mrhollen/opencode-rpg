@@ -376,6 +376,144 @@ export class HouseInterior {
     this.lightSources.push({ x: 572, y: 110, radius: 110, color: '#fef08a', flicker: true });
   }
 
+  updateSession(freshSession) {
+    if (!freshSession) return;
+    this.session = freshSession;
+    this.hutName = freshSession.name || freshSession.title || 'Guild Workshop';
+
+    const isSessionActive =
+      freshSession.status === 'active' ||
+      freshSession.is_active ||
+      (freshSession.activeAgents && freshSession.activeAgents > 0);
+
+    // Update Master Agent
+    if (this.masterAgent) {
+      const masterTask =
+        freshSession.latestActivity ||
+        freshSession.currentTask ||
+        (isSessionActive ? 'Orchestrating session tasks' : 'Session idle');
+      this.masterAgent.name = `Lead: ${freshSession.agent || 'Master'}`;
+      this.masterAgent.status = isSessionActive ? AGENT_STATUSES.WORKING : AGENT_STATUSES.IDLE;
+      this.masterAgent.currentTask = masterTask;
+      this.masterAgent.subagentData = {
+        id: freshSession.id,
+        agent: freshSession.agent || 'team-lead',
+        model: freshSession.model,
+        role: 'master',
+        is_active: isSessionActive,
+        title: freshSession.title,
+      };
+    }
+
+    const mapSubRole = (r = '') => {
+      const s = (r || '').toLowerCase();
+      if (s.includes('code') || s.includes('dev') || s.includes('build') || s.includes('forge'))
+        return AGENT_ROLES.BUILD;
+      if (s.includes('explore') || s.includes('research') || s.includes('doc') || s.includes('lib'))
+        return AGENT_ROLES.EXPLORE;
+      if (s.includes('review') || s.includes('qa') || s.includes('test') || s.includes('alchem'))
+        return AGENT_ROLES.REVIEW;
+      return AGENT_ROLES.TASK;
+    };
+
+    const subagents = freshSession.subagents || [];
+    const assignedSubIds = new Set();
+
+    const coderSub = subagents.find((s) => mapSubRole(s.role || s.agent) === AGENT_ROLES.BUILD);
+    if (coderSub) assignedSubIds.add(coderSub.id);
+
+    const exploreSub = subagents.find(
+      (s) => !assignedSubIds.has(s.id) && mapSubRole(s.role || s.agent) === AGENT_ROLES.EXPLORE
+    );
+    if (exploreSub) assignedSubIds.add(exploreSub.id);
+
+    const qaSub = subagents.find(
+      (s) => !assignedSubIds.has(s.id) && mapSubRole(s.role || s.agent) === AGENT_ROLES.REVIEW
+    );
+    if (qaSub) assignedSubIds.add(qaSub.id);
+
+    const taskSub = subagents.find((s) => !assignedSubIds.has(s.id));
+    if (taskSub) assignedSubIds.add(taskSub.id);
+
+    // Update Blacksmith
+    if (this.blacksmith) {
+      const coderName = coderSub
+        ? `Coder: ${coderSub.model || coderSub.role || coderSub.agent}`
+        : `Coder (${freshSession.model || 'Code'})`;
+      const coderTask =
+        coderSub?.latestActivity ||
+        coderSub?.recentTask ||
+        (isSessionActive ? 'Applying code edits & git commits' : 'Idle (waiting for code)');
+      const isCoderWorking = coderSub ? coderSub.is_active : isSessionActive;
+      this.blacksmith.name = coderName;
+      this.blacksmith.status = isCoderWorking ? AGENT_STATUSES.WORKING : AGENT_STATUSES.IDLE;
+      this.blacksmith.currentTask = coderTask;
+      if (coderSub) this.blacksmith.subagentData = coderSub;
+    }
+
+    // Update Scholar
+    if (this.scholar) {
+      const exploreName = exploreSub
+        ? `Explore: ${exploreSub.model || exploreSub.role || exploreSub.agent}`
+        : `Research (${freshSession.model || 'Docs'})`;
+      const exploreTask =
+        exploreSub?.latestActivity ||
+        exploreSub?.recentTask ||
+        (isSessionActive ? 'Reading workspace files & symbols' : 'Idle (ready to explore)');
+      const isExploreWorking = exploreSub ? exploreSub.is_active : isSessionActive;
+      this.scholar.name = exploreName;
+      this.scholar.status = isExploreWorking ? AGENT_STATUSES.WORKING : AGENT_STATUSES.IDLE;
+      this.scholar.currentTask = exploreTask;
+      if (exploreSub) this.scholar.subagentData = exploreSub;
+    }
+
+    // Update Alchemist
+    if (this.alchemist) {
+      const qaName = qaSub
+        ? `QA: ${qaSub.model || qaSub.role || qaSub.agent}`
+        : `Test & QA (${freshSession.model || 'Review'})`;
+      const qaTask =
+        qaSub?.latestActivity ||
+        qaSub?.recentTask ||
+        (isSessionActive ? 'Running verification & tests' : 'Idle (checks passing)');
+      const isQaWorking = qaSub ? qaSub.is_active : isSessionActive;
+      this.alchemist.name = qaName;
+      this.alchemist.status = isQaWorking ? AGENT_STATUSES.WORKING : AGENT_STATUSES.IDLE;
+      this.alchemist.currentTask = qaTask;
+      if (qaSub) this.alchemist.subagentData = qaSub;
+    }
+
+    // Update Rogue
+    if (this.rogue) {
+      const taskName = taskSub ? `Task: ${taskSub.model || taskSub.role || taskSub.agent}` : 'Coordinator';
+      const taskTask = taskSub?.latestActivity || taskSub?.recentTask || 'Managing task queue';
+      const isTaskWorking = taskSub ? taskSub.is_active : false;
+      this.rogue.name = taskName;
+      this.rogue.status = isTaskWorking ? AGENT_STATUSES.WORKING : AGENT_STATUSES.IDLE;
+      this.rogue.currentTask = taskTask;
+      if (taskSub) this.rogue.subagentData = taskSub;
+    }
+
+    // Update extra workbench subagents
+    const extraSubagents = subagents.filter((s) => !assignedSubIds.has(s.id));
+    extraSubagents.forEach((sub) => {
+      let subSprite = this.agents.find((a) => a.id === `interior-sub-${sub.id}`);
+      if (subSprite) {
+        subSprite.name = `${sub.agent || 'subagent'}: ${sub.model || 'model'}`;
+        subSprite.status = sub.is_active ? AGENT_STATUSES.WORKING : AGENT_STATUSES.IDLE;
+        subSprite.currentTask = sub.latestActivity || sub.recentTask || sub.title;
+        subSprite.subagentData = sub;
+      }
+    });
+
+    // Update stations active flag
+    this.stations.forEach((s) => {
+      if (s.id !== 'interior-notice-board') {
+        s.active = isSessionActive;
+      }
+    });
+  }
+
   isWalkable(x, y) {
     // Check outer wall bounds
     if (

@@ -406,8 +406,12 @@ export function RpgCanvas({
   // Update world entities when sessions prop changes
   useEffect(() => {
     refreshWorldEntities(sessions);
-    if (engineRef.current.stargate && sessions.length > 0) {
-      engineRef.current.stargate.engageArrival(6.5);
+    if (engineRef.current.currentHutInterior && sessions.length > 0) {
+      const currentId = engineRef.current.currentHutInterior.session?.id;
+      const updatedSess = sessions.find((s) => s.id === currentId);
+      if (updatedSess) {
+        engineRef.current.currentHutInterior.updateSession(updatedSess);
+      }
     }
   }, [sessions]);
 

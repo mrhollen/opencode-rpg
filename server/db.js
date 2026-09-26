@@ -256,14 +256,38 @@ function getLockInfo() {
 }
 
 /**
- * Retrieves active sessions based on locks and recent DB updates (within 15 minutes).
+ * Extracts the latest real tool invocation or activity from session parts.
+ */
+function getLatestSessionActivity(sessionId) {
+  if (!db || isFallbackMode) return null;
+  try {
+    const parts = db
+      .prepare('SELECT data FROM part WHERE session_id = ? ORDER BY time_created DESC LIMIT 8')
+      .all(sessionId);
+    for (const p of parts) {
+      try {
+        const d = JSON.parse(p.data);
+        if (d.type === 'tool' && d.tool) {
+          const inp = d.state?.input || {};
+          const desc = inp.description || inp.command || inp.filePath || inp.path || inp.query || '';
+          const shortDesc = desc.length > 45 ? desc.substring(0, 42) + '...' : desc;
+          return shortDesc ? `${d.tool}: ${shortDesc}` : `${d.tool}`;
+        }
+      } catch {}
+    }
+  } catch {}
+  return null;
+}
+
+/**
+ * Retrieves active sessions based on locks and recent DB updates (within 60 seconds).
  */
 function getActiveSessions() {
   if (isFallbackMode || !db) return getMockActive();
 
   try {
     const now = Date.now();
-    const threshold15m = now - 15 * 60 * 1000;
+    const thresholdActive = now - 60 * 1000;
     const threshold2m = now - 2 * 60 * 1000;
 
     let activeSessions = db
@@ -271,29 +295,12 @@ function getActiveSessions() {
         `
       SELECT id, project_id, parent_id, slug, title, agent, model, time_created, time_updated, time_archived
       FROM session
-      WHERE time_updated >= ? AND time_archived IS NULL
+      WHERE (time_updated >= ? OR id IN (SELECT session_id FROM part WHERE time_created >= ?))
+        AND time_archived IS NULL
       ORDER BY time_updated DESC
     `
       )
-      .all(threshold15m);
-
-    // If none within 15m, find the single most recently active session
-    if (activeSessions.length === 0) {
-      const latest = db
-        .prepare(
-          `
-        SELECT id, project_id, parent_id, slug, title, agent, model, time_created, time_updated, time_archived
-        FROM session
-        WHERE time_archived IS NULL
-        ORDER BY time_updated DESC
-        LIMIT 1
-      `
-        )
-        .get();
-      if (latest) {
-        activeSessions = [latest];
-      }
-    }
+      .all(thresholdActive, thresholdActive);
 
     return activeSessions.map((s) => {
       const isRecent = s.time_updated >= threshold2m;
@@ -315,6 +322,7 @@ function getActiveSessions() {
         lastUpdated: s.time_updated,
         station: assignStation(s.agent, isMaster ? 'master' : 'subagent', s.title),
         isRecent,
+        latestActivity: getLatestSessionActivity(s.id),
       };
     });
   } catch (err) {
@@ -330,7 +338,7 @@ function getProjects() {
   if (isFallbackMode || !db) return getMockProjects();
 
   try {
-    const threshold15m = Date.now() - 15 * 60 * 1000;
+    const thresholdActive = Date.now() - 60 * 1000;
     const query = `
       SELECT 
         p.id,
@@ -339,7 +347,7 @@ function getProjects() {
         p.time_created,
         p.time_updated as project_time_updated,
         COUNT(s.id) as session_count,
-        COUNT(CASE WHEN s.time_updated >= ? AND s.time_archived IS NULL THEN 1 END) as active_count,
+        COUNT(CASE WHEN (s.time_updated >= ? OR s.id IN (SELECT session_id FROM part WHERE time_created >= ?)) AND s.time_archived IS NULL THEN 1 END) as active_count,
         COALESCE(SUM(s.tokens_input + s.tokens_output + s.tokens_reasoning), 0) as total_tokens,
         COALESCE(SUM(s.cost), 0.0) as total_cost,
         MAX(COALESCE(s.time_updated, p.time_updated)) as last_updated
@@ -349,7 +357,7 @@ function getProjects() {
       ORDER BY last_updated DESC
     `;
 
-    const rows = db.prepare(query).all(threshold15m);
+    const rows = db.prepare(query).all(thresholdActive, thresholdActive);
     return rows.map((r) => {
       const displayName = formatDisplayName(r.worktree, r.name);
       return {
@@ -393,7 +401,8 @@ function getProjectWorld(projectId) {
       return null;
     }
 
-    const threshold15m = Date.now() - 15 * 60 * 1000;
+    const now = Date.now();
+    const thresholdActive = now - 60 * 1000;
 
     // Fetch master sessions (parent_id IS NULL)
     let masterRows = db
@@ -410,40 +419,24 @@ function getProjectWorld(projectId) {
     }
 
     const sessions = masterRows.map((m) => {
-      const is_active = m.time_updated >= threshold15m && !m.time_archived;
-      const modelInfo = parseModel(m.model);
-
-      // Fetch subagents (child sessions)
+      // Fetch recursive subagents (all descendant sessions in tree)
       const childRows = db
-        .prepare('SELECT * FROM session WHERE parent_id = ? ORDER BY time_updated DESC')
+        .prepare(`
+          WITH RECURSIVE desc_session AS (
+            SELECT * FROM session WHERE parent_id = ?
+            UNION ALL
+            SELECT s.* FROM session s JOIN desc_session d ON s.parent_id = d.id
+          )
+          SELECT * FROM desc_session ORDER BY time_updated DESC
+        `)
         .all(m.id);
 
-/**
- * Extracts the latest real tool invocation or activity from session parts.
- */
-function getLatestSessionActivity(sessionId) {
-  if (!db || isFallbackMode) return null;
-  try {
-    const parts = db
-      .prepare('SELECT data FROM part WHERE session_id = ? ORDER BY time_created DESC LIMIT 8')
-      .all(sessionId);
-    for (const p of parts) {
-      try {
-        const d = JSON.parse(p.data);
-        if (d.type === 'tool' && d.tool) {
-          const inp = d.state?.input || {};
-          const desc = inp.description || inp.command || inp.filePath || inp.path || inp.query || '';
-          const shortDesc = desc.length > 45 ? desc.substring(0, 42) + '...' : desc;
-          return shortDesc ? `${d.tool}: ${shortDesc}` : `${d.tool}`;
-        }
-      } catch {}
-    }
-  } catch {}
-  return null;
-}
-
       const subagents = childRows.map((sub) => {
-        const subActive = sub.time_updated >= threshold15m && !sub.time_archived;
+        const latestPartRow = db
+          .prepare('SELECT time_created FROM part WHERE session_id = ? ORDER BY time_created DESC LIMIT 1')
+          .get(sub.id);
+        const subPartTime = latestPartRow ? latestPartRow.time_created : 0;
+        const subActive = (sub.time_updated >= thresholdActive || subPartTime >= thresholdActive) && !sub.time_archived;
         const subModel = parseModel(sub.model);
         const recentTodo = db
           .prepare(
@@ -485,11 +478,20 @@ function getLatestSessionActivity(sessionId) {
       // Fetch merged todos for master and all subagents
       const todos = getSessionTodos(m.id);
 
+      const latestMasterPart = db
+        .prepare('SELECT time_created FROM part WHERE session_id = ? ORDER BY time_created DESC LIMIT 1')
+        .get(m.id);
+      const masterPartTime = latestMasterPart ? latestMasterPart.time_created : 0;
+      const masterSelfActive = (m.time_updated >= thresholdActive || masterPartTime >= thresholdActive) && !m.time_archived;
+
       const activeSubCount = subagents.filter((s) => s.is_active).length;
-      const totalActiveCount = activeSubCount + (is_active ? 1 : 0);
+      const totalActiveCount = activeSubCount + (masterSelfActive ? 1 : 0);
+      const is_active = totalActiveCount > 0;
+
       const activeTodo = todos.find((t) => t.status === 'in_progress');
       const masterActivity = getLatestSessionActivity(m.id);
       const currentTask = masterActivity || activeTodo?.content || m.title;
+      const modelInfo = parseModel(m.model);
 
       return {
         id: m.id,
@@ -1193,14 +1195,18 @@ function getStargateNetwork() {
 }
 
 /**
- * Fast check for real-time DB changes across sessions, parts, and todos.
+ * Fast check for real-time DB changes across sessions, parts, todos, and active transitions.
  */
 function checkDbUpdates(lastSeen) {
   if (isFallbackMode || !db) {
-    return { hasChanges: false, updatedSession: null, newToolCall: null, completedTodo: null };
+    return { hasChanges: false, updatedSession: null, newToolCall: null, completedTodo: null, activeSessionIds: [] };
   }
 
   try {
+    const now = Date.now();
+    const thresholdActive = now - 60 * 1000;
+
+    // 1. Globally latest session row
     const latestSessionRow = db
       .prepare(
         `
@@ -1212,65 +1218,19 @@ function checkDbUpdates(lastSeen) {
       )
       .get();
 
-    let updatedSession = null;
-    let newToolCall = null;
-    let completedTodo = null;
-    let hasChanges = false;
+    // 2. Globally latest part (across all sessions and subagents!)
+    const latestPart = db
+      .prepare(
+        `
+      SELECT id, message_id, session_id, time_created, data
+      FROM part
+      ORDER BY time_created DESC
+      LIMIT 1
+    `
+      )
+      .get();
 
-    if (latestSessionRow && latestSessionRow.time_updated > (lastSeen.sessionTime || 0)) {
-      lastSeen.sessionTime = latestSessionRow.time_updated;
-      hasChanges = true;
-
-      const modelInfo = parseModel(latestSessionRow.model);
-      const isMaster = !latestSessionRow.parent_id;
-      updatedSession = {
-        id: latestSessionRow.id,
-        slug: latestSessionRow.slug,
-        title: latestSessionRow.title,
-        agent: latestSessionRow.agent || (isMaster ? 'team-lead' : 'subagent'),
-        model: modelInfo.id,
-        cost: latestSessionRow.cost,
-        tokens_input: latestSessionRow.tokens_input,
-        tokens_output: latestSessionRow.tokens_output,
-        time_created: latestSessionRow.time_created,
-        time_updated: latestSessionRow.time_updated,
-        status: 'active',
-        is_active: true,
-        station: assignStation(
-          latestSessionRow.agent,
-          isMaster ? 'master' : 'subagent',
-          latestSessionRow.title
-        ),
-      };
-
-      const latestPart = db
-        .prepare(
-          `
-        SELECT id, message_id, session_id, time_created, data
-        FROM part
-        WHERE session_id = ?
-        ORDER BY time_created DESC
-        LIMIT 1
-      `
-        )
-        .get(latestSessionRow.id);
-
-      if (latestPart && latestPart.time_created > (lastSeen.partTime || 0)) {
-        lastSeen.partTime = latestPart.time_created;
-        try {
-          const parsed = JSON.parse(latestPart.data);
-          if (parsed.type === 'tool') {
-            newToolCall = {
-              tool: parsed.tool,
-              session_id: latestPart.session_id,
-              callID: parsed.callID,
-              title: parsed.title,
-            };
-          }
-        } catch {}
-      }
-    }
-
+    // 3. Globally latest completed todo
     const latestTodo = db
       .prepare(
         `
@@ -1283,6 +1243,77 @@ function checkDbUpdates(lastSeen) {
       )
       .get();
 
+    // 4. Compute active session IDs in last 60s
+    const activeRows = db
+      .prepare(
+        `
+      SELECT DISTINCT session_id FROM (
+        SELECT id as session_id FROM session WHERE time_updated >= ? AND time_archived IS NULL
+        UNION
+        SELECT session_id FROM part WHERE time_created >= ?
+      )
+    `
+      )
+      .all(thresholdActive, thresholdActive);
+
+    const currentActiveIds = new Set(activeRows.map((r) => r.session_id));
+    const currentActiveHash = Array.from(currentActiveIds).sort().join(',');
+
+    let updatedSession = null;
+    let newToolCall = null;
+    let completedTodo = null;
+    let hasChanges = false;
+
+    // Check if session updated
+    if (latestSessionRow && latestSessionRow.time_updated > (lastSeen.sessionTime || 0)) {
+      lastSeen.sessionTime = latestSessionRow.time_updated;
+      hasChanges = true;
+
+      const modelInfo = parseModel(latestSessionRow.model);
+      const isMaster = !latestSessionRow.parent_id;
+      const realActivity = getLatestSessionActivity(latestSessionRow.id);
+      const isSessionActive = currentActiveIds.has(latestSessionRow.id);
+
+      updatedSession = {
+        id: latestSessionRow.id,
+        slug: latestSessionRow.slug,
+        title: latestSessionRow.title,
+        agent: latestSessionRow.agent || (isMaster ? 'team-lead' : 'subagent'),
+        model: modelInfo.id,
+        cost: latestSessionRow.cost,
+        tokens_input: latestSessionRow.tokens_input,
+        tokens_output: latestSessionRow.tokens_output,
+        time_created: latestSessionRow.time_created,
+        time_updated: latestSessionRow.time_updated,
+        status: isSessionActive ? 'active' : 'idle',
+        is_active: isSessionActive,
+        station: assignStation(
+          latestSessionRow.agent,
+          isMaster ? 'master' : 'subagent',
+          latestSessionRow.title
+        ),
+        latestActivity: realActivity,
+      };
+    }
+
+    // Check if new part arrived globally (new tool call or reasoning)
+    if (latestPart && latestPart.time_created > (lastSeen.partTime || 0)) {
+      lastSeen.partTime = latestPart.time_created;
+      hasChanges = true;
+      try {
+        const parsed = JSON.parse(latestPart.data);
+        if (parsed.type === 'tool') {
+          newToolCall = {
+            tool: parsed.tool,
+            session_id: latestPart.session_id,
+            callID: parsed.callID,
+            title: parsed.title,
+          };
+        }
+      } catch {}
+    }
+
+    // Check if new completed todo arrived
     if (latestTodo && latestTodo.time_updated > (lastSeen.todoTime || 0)) {
       lastSeen.todoTime = latestTodo.time_updated;
       hasChanges = true;
@@ -1292,10 +1323,22 @@ function checkDbUpdates(lastSeen) {
       };
     }
 
-    return { hasChanges, updatedSession, newToolCall, completedTodo };
+    // Check if the set of active sessions transitioned (e.g. an agent just became idle or started)
+    if (lastSeen.activeHash !== undefined && lastSeen.activeHash !== currentActiveHash) {
+      hasChanges = true;
+    }
+    lastSeen.activeHash = currentActiveHash;
+
+    return {
+      hasChanges,
+      updatedSession,
+      newToolCall,
+      completedTodo,
+      activeSessionIds: Array.from(currentActiveIds),
+    };
   } catch (err) {
     console.error('[Database] checkDbUpdates error:', err.message);
-    return { hasChanges: false, updatedSession: null, newToolCall: null, completedTodo: null };
+    return { hasChanges: false, updatedSession: null, newToolCall: null, completedTodo: null, activeSessionIds: [] };
   }
 }
 

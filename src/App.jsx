@@ -161,6 +161,11 @@ export default function App() {
   const [isCrtActive, setIsCrtActive] = useState(false);
   const [isNightMode, setIsNightMode] = useState(false);
 
+  const currentProjectRef = React.useRef(currentProject);
+  currentProjectRef.current = currentProject;
+  const selectedSessionRef = React.useRef(selectedSession);
+  selectedSessionRef.current = selectedSession;
+
   // 1. Fetch Projects from Backend
   const fetchProjects = useCallback(async () => {
     try {
@@ -170,17 +175,17 @@ export default function App() {
       const list = Array.isArray(data) ? data : data.projects || [];
       if (list.length > 0) {
         setProjects(list);
-        if (!currentProject || !list.find((p) => p.id === currentProject.id)) {
+        if (!currentProjectRef.current || !list.find((p) => p.id === currentProjectRef.current.id)) {
           setCurrentProject(list[0]);
         }
       }
     } catch {
       // Backend not yet ready; retain fallback projects
     }
-  }, [currentProject]);
+  }, []);
 
-  // 2. Fetch Sessions for Current Project
-  const fetchSessions = useCallback(async (projectId) => {
+  // 2. Fetch Sessions for Current Project (supports silent real-time refresh)
+  const fetchSessions = useCallback(async (projectId, silent = false) => {
     if (!projectId) return;
     try {
       const res = await fetch(`/api/projects/${projectId}/sessions`);
@@ -189,6 +194,12 @@ export default function App() {
       const list = Array.isArray(data) ? data : data.sessions || [];
       if (list.length > 0) {
         setSessions(list);
+        if (selectedSessionRef.current) {
+          const fresh = list.find((s) => s.id === selectedSessionRef.current.id);
+          if (fresh) {
+            setSelectedSession(fresh);
+          }
+        }
       }
     } catch {
       // Backend not yet ready; retain fallback sessions
@@ -205,6 +216,16 @@ export default function App() {
     }
   }, [currentProject?.id, fetchSessions]);
 
+  // Periodic background sync (every 2.5s) guarantees real-time accuracy even without manual refresh
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (currentProjectRef.current?.id) {
+        fetchSessions(currentProjectRef.current.id, true);
+      }
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [fetchSessions]);
+
   // 3. Connect to SSE Live Events Stream
   useEffect(() => {
     let evtSource = null;
@@ -214,9 +235,26 @@ export default function App() {
       evtSource.onmessage = (e) => {
         try {
           const payload = JSON.parse(e.data);
+          if (payload.type === 'world_updated' || payload.type === 'session_updated') {
+            if (currentProjectRef.current?.id) {
+              fetchSessions(currentProjectRef.current.id, true);
+            }
+          }
           handleLiveEvent(payload);
         } catch {}
       };
+
+      evtSource.addEventListener('world_updated', () => {
+        if (currentProjectRef.current?.id) {
+          fetchSessions(currentProjectRef.current.id, true);
+        }
+      });
+
+      evtSource.addEventListener('session_updated', () => {
+        if (currentProjectRef.current?.id) {
+          fetchSessions(currentProjectRef.current.id, true);
+        }
+      });
 
       evtSource.addEventListener('tool_call', (e) => {
         try {
@@ -238,7 +276,7 @@ export default function App() {
     return () => {
       if (evtSource) evtSource.close();
     };
-  }, []);
+  }, [fetchSessions]);
 
   // Handle live event mutations
   const handleLiveEvent = (event) => {
@@ -248,7 +286,7 @@ export default function App() {
       setSessions((prev) =>
         prev.map((s) => (s.id === event.session.id ? { ...s, ...event.session } : s))
       );
-      if (selectedSession?.id === event.session.id) {
+      if (selectedSessionRef.current?.id === event.session.id) {
         setSelectedSession((prev) => ({ ...prev, ...event.session }));
       }
     }
@@ -346,10 +384,11 @@ export default function App() {
 
   // Derive Single-GPU Status
   const activeWorkingCount = sessions.filter(
-    (s) => s.status === 'active' || (!s.time_archived && !s.revert)
+    (s) => s.status === 'active' || s.is_active || (s.activeAgents && s.activeAgents > 0)
   ).length;
   const gpuStatus = activeWorkingCount > 0 ? 'busy' : 'idle';
-  const activeSessionItem = sessions.find((s) => s.status === 'active') || sessions[0];
+  const activeSessionItem =
+    sessions.find((s) => s.status === 'active' || s.is_active) || sessions[0];
   const activeAgentTask = activeSessionItem?.currentTask || activeSessionItem?.title || '';
 
   return (
