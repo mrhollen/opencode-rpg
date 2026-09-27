@@ -88,8 +88,10 @@ export class AgentSprite {
     }
     ctx.restore();
 
-    // 4. Overhead Badges & Speech Bubble
-    this.drawOverheadUI(ctx, isSelected);
+    // 4. Overhead Badges & Speech Bubble (Only shown when moused over or selected!)
+    if (isHovered || isSelected) {
+      this.drawOverheadUI(ctx, isSelected);
+    }
 
     ctx.restore();
   }
@@ -376,9 +378,9 @@ export class AgentSprite {
     ctx.fillStyle = isWorking ? '#a7f3d0' : '#e2e8f0';
     ctx.fillText(tagText, this.x + 4, tagY);
 
-    // 2. Speech Bubble if working or has active reasoning/task
+    // 2. Speech Bubble if has active task/activity/reasoning
     const speechContent = this.latestActivity || this.currentTask || this.reasoning;
-    if (speechContent && (isWorking || isThinking || isSelected || this.speechTimer < 6)) {
+    if (speechContent) {
       this.drawSpeechBubble(ctx, speechContent, tagY - 14, isWorking);
     }
 
@@ -446,10 +448,10 @@ export class AgentSprite {
   }
 
   containsPoint(worldX, worldY) {
-    // Generous hitbox including sprite body, overhead name tag, and speech bubble
-    const left = this.x - this.width / 2 - 8;
-    const right = this.x + this.width / 2 + 8;
-    const top = this.y - this.height / 2 - 26;
+    // Generous hitbox covering sprite body and overhead label area
+    const left = this.x - this.width / 2 - 10;
+    const right = this.x + this.width / 2 + 10;
+    const top = this.y - 56;
     const bottom = this.y + this.height / 2 + 12;
     return worldX >= left && worldX <= right && worldY >= top && worldY <= bottom;
   }

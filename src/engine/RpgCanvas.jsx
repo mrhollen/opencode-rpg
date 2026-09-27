@@ -689,7 +689,9 @@ export function RpgCanvas({
         ctx,
         engine.player,
         engine.hoveredStation?.id,
-        engine.selectedStation?.id
+        engine.selectedStation?.id,
+        engine.hoveredAgent?.id,
+        engine.selectedAgent?.id
       );
 
       engine.particles.render(ctx);
@@ -744,6 +746,7 @@ export function RpgCanvas({
         }
       });
 
+      let activeHoveredExteriorAgent = null;
       engine.agents.forEach(agent => {
         if (
           agent.x + 30 >= visibleBounds.left &&
@@ -751,9 +754,14 @@ export function RpgCanvas({
           agent.y + 30 >= visibleBounds.top &&
           agent.y - 30 <= visibleBounds.bottom
         ) {
+          const isSelected = engine.selectedAgent?.id === agent.id;
+          const isHovered = engine.hoveredAgent?.id === agent.id;
+          if (isSelected || isHovered) {
+            activeHoveredExteriorAgent = { agent, isSelected };
+          }
           renderables.push({
             y: agent.y,
-            render: (c) => agent.render(c, engine.selectedAgent?.id === agent.id, engine.hoveredAgent?.id === agent.id),
+            render: (c) => agent.render(c, isSelected, isHovered),
           });
         }
       });
@@ -772,6 +780,11 @@ export function RpgCanvas({
 
       renderables.sort((a, b) => a.y - b.y);
       renderables.forEach(item => item.render(ctx));
+
+      // Draw hovered/selected agent overhead UI on top of scenery
+      if (activeHoveredExteriorAgent) {
+        activeHoveredExteriorAgent.agent.drawOverheadUI(ctx, activeHoveredExteriorAgent.isSelected);
+      }
 
       // F. Particles
       engine.particles.render(ctx, visibleBounds);
@@ -995,6 +1008,18 @@ export function RpgCanvas({
     engineRef.current.isDragging = false;
   };
 
+  const handleMouseLeave = () => {
+    const engine = engineRef.current;
+    engine.hoveredAgent = null;
+    engine.hoveredStation = null;
+    engine.hoveredHut = null;
+    engine.hoveredStargate = false;
+    engine.isDragging = false;
+    if (canvasRef.current) {
+      canvasRef.current.style.cursor = 'default';
+    }
+  };
+
   const handleWheel = (e) => {
     e.preventDefault();
     const canvas = canvasRef.current;
@@ -1070,6 +1095,7 @@ export function RpgCanvas({
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseLeave}
         onWheel={handleWheel}
       />
 

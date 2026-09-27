@@ -185,8 +185,10 @@ export class CourierApprentice {
     this.drawCourierSprite(ctx);
     ctx.restore();
 
-    // 4. Overhead Badge & Speech Bubble
-    this.drawOverheadUI(ctx);
+    // 4. Overhead Badge & Speech Bubble (Only show when moused over or clicked!)
+    if (isHovered || isSelected) {
+      this.drawOverheadUI(ctx);
+    }
 
     ctx.restore();
   }

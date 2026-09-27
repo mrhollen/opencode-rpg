@@ -598,7 +598,7 @@ export class HouseInterior {
     }
   }
 
-  render(ctx, player, hoveredStationId = null, selectedStationId = null) {
+  render(ctx, player, hoveredStationId = null, selectedStationId = null, hoveredAgentId = null, selectedAgentId = null) {
     ctx.save();
 
     // 1. Black Void Backdrop
@@ -632,10 +632,16 @@ export class HouseInterior {
     });
 
     // Agents
+    let activeHoveredAgent = null;
     this.agents.forEach(agent => {
+      const isSelected = selectedAgentId === agent.id;
+      const isHovered = hoveredAgentId === agent.id;
+      if (isSelected || isHovered) {
+        activeHoveredAgent = { agent, isSelected };
+      }
       renderables.push({
         y: agent.y,
-        render: (c) => agent.render(c, false, false),
+        render: (c) => agent.render(c, isSelected, isHovered),
       });
     });
 
@@ -649,6 +655,11 @@ export class HouseInterior {
 
     renderables.sort((a, b) => a.y - b.y);
     renderables.forEach(item => item.render(ctx));
+
+    // Ensure hovered or selected agent's overhead UI draws crisp on top of all furniture
+    if (activeHoveredAgent) {
+      activeHoveredAgent.agent.drawOverheadUI(ctx, activeHoveredAgent.isSelected);
+    }
 
     // 8. Exit Doorway & Welcome Mat
     this.drawExitDoorway(ctx);
